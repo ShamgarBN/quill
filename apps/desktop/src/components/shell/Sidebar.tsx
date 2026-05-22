@@ -1,6 +1,7 @@
 import {
   BookOpenText,
   Compass,
+  Database,
   Users2,
   Lightbulb,
   Library,
@@ -20,15 +21,14 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { id: "manuscript", label: "Manuscript", icon: BookOpenText },
-  { id: "beats",      label: "Beat Sheet", icon: Compass },
-  { id: "bible",      label: "Character Bible", icon: Users2 },
-  { id: "ideas",      label: "Idea Park", icon: Lightbulb },
-  { id: "research",   label: "Research",  icon: Library },
+  { id: "beats", label: "Beat Sheet", icon: Compass },
+  { id: "canon", label: "Canon", icon: Database },
+  { id: "bible", label: "Character Bible", icon: Users2 },
+  { id: "ideas", label: "Idea Park", icon: Lightbulb },
+  { id: "research", label: "Research", icon: Library },
 ];
 
-const FOOTER: NavItem[] = [
-  { id: "settings",   label: "Settings",  icon: SettingsIcon },
-];
+const FOOTER: NavItem[] = [{ id: "settings", label: "Settings", icon: SettingsIcon }];
 
 export function Sidebar(): JSX.Element {
   const route = useApp((s) => s.route);

@@ -7,7 +7,10 @@ export function BibleView(): JSX.Element {
         title="Character Bible"
         subtitle="Auto-extracted from your manuscript"
       />
-      <PhasePlaceholder phase={7} description="Characters, locations, and lore — derived from the manuscript and editable in place. Continuity flags surface contradictions across chapters." />
+      <PhasePlaceholder
+        phase={7}
+        description="Characters, locations, and lore — derived from the manuscript and editable in place. Continuity flags surface contradictions across chapters."
+      />
     </div>
   );
 }

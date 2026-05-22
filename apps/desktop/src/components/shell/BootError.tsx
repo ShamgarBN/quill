@@ -10,9 +10,8 @@ export function BootError({ message }: { message: string }): JSX.Element {
         </div>
         <p className="text-sm text-ink-muted">{message}</p>
         <p className="mt-3 text-xs text-ink-faint">
-          Quitting and reopening Quill usually resolves this. If it persists,
-          open <code>~/Library/Application Support/Quill/audit.log</code> for
-          details.
+          Quitting and reopening Quill usually resolves this. If it persists, open{" "}
+          <code>~/Library/Application Support/Quill/audit.log</code> for details.
         </p>
       </div>
     </div>

@@ -7,6 +7,18 @@
 //!
 //! Zero business logic in this layer — it lives in `services::*`.
 
+mod canon;
+mod llm;
+mod manuscript;
+mod structure;
+mod voice;
+
+pub use canon::*;
+pub use llm::*;
+pub use manuscript::*;
+pub use structure::*;
+pub use voice::*;
+
 use crate::config;
 use crate::error::Result;
 use crate::models::settings::SettingsPatch;
@@ -39,7 +51,6 @@ pub fn app_info(state: State<'_, AppState>) -> Result<AppInfo> {
 #[tauri::command]
 pub fn project_create(state: State<'_, AppState>, name: String) -> Result<Project> {
     let project = state.projects.create(&name)?;
-    // Create the initial git commit for the project so history starts non-empty.
     let dir = state.projects.root_dir(&project.id)?;
     let git = GitService::for_project(&dir);
     let _ = git.commit_all(Some("initial: project created"))?;

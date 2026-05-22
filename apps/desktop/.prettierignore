@@ -1,0 +1,24 @@
+# Build outputs
+dist/
+build/
+out/
+.vite/
+
+# Rust workspace under src-tauri owns its own formatting (rustfmt).
+src-tauri/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Generated
+*.lock
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Coverage
+coverage/
+
+# OS junk
+.DS_Store

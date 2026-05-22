@@ -12,6 +12,7 @@ build/
 out/
 .vite/
 .next/
+*.tsbuildinfo
 
 # --- Rust / Cargo ---
 target/
@@ -19,9 +20,9 @@ target/
 Cargo.lock.bak
 
 # --- Tauri ---
-src-tauri/target/
-src-tauri/gen/
-src-tauri/WixTools/
+**/src-tauri/target/
+**/src-tauri/gen/
+**/src-tauri/WixTools/
 
 # --- macOS ---
 .DS_Store

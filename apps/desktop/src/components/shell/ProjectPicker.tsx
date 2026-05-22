@@ -35,8 +35,8 @@ export function ProjectPicker(): JSX.Element {
           </div>
           <h1 className="text-xl font-semibold text-ink">Welcome to Quill</h1>
           <p className="mt-1 max-w-sm text-sm text-ink-muted">
-            A writing companion that learns your voice. Start by naming your
-            book — you can change this later.
+            A writing companion that learns your voice. Start by naming your book — you
+            can change this later.
           </p>
         </header>
 

@@ -36,10 +36,16 @@ export default [
         HTMLElement: "readonly",
         HTMLInputElement: "readonly",
         HTMLButtonElement: "readonly",
+        HTMLTextAreaElement: "readonly",
         KeyboardEvent: "readonly",
         Element: "readonly",
         JSX: "readonly",
         React: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        queueMicrotask: "readonly",
       },
     },
     plugins: {
@@ -59,6 +65,10 @@ export default [
       ],
       "@typescript-eslint/consistent-type-imports": "error",
       "react/prop-types": "off",
+      // The default `react/no-unescaped-entities` rule fires on every
+      // legitimate apostrophe and quote in copy. Our UI strings are
+      // English prose; we'd rather write "user's" than "user&apos;s".
+      "react/no-unescaped-entities": "off",
     },
   },
 ];
