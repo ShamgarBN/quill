@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: 9
+  PNPM_VERSION: 11
   NODE_VERSION: 20
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
@@ -24,18 +24,18 @@ jobs:
     name: Frontend (lint + typecheck)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -57,9 +57,22 @@ jobs:
     name: Rust (fmt + clippy + test)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -76,6 +89,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      # tauri::generate_context!() validates frontendDist at compile time,
+      # so dist/ must exist before clippy or test can compile the crate.
+      - name: Build frontend (for generate_context!)
+        working-directory: apps/desktop
+        run: pnpm build
 
       - name: Format
         working-directory: apps/desktop/src-tauri
@@ -94,18 +117,18 @@ jobs:
     runs-on: macos-14
     needs: [frontend, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
