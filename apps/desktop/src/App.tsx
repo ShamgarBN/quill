@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useApp } from "@/stores/app";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
+import { WindowDragBar } from "@/components/shell/WindowDragBar";
 import { ManuscriptView } from "@/routes/Manuscript";
 import { BeatsView } from "@/routes/Beats";
 import { CanonView } from "@/routes/Canon";
@@ -79,10 +80,13 @@ export default function App(): JSX.Element {
 
 function BootSplash(): JSX.Element {
   return (
-    <div className="flex h-full items-center justify-center bg-surface text-ink-muted">
-      <div className="flex items-center gap-3 text-sm">
-        <div className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-        <span>Quill is waking up…</span>
+    <div className="flex h-full flex-col bg-surface text-ink-muted">
+      <WindowDragBar />
+      <div className="flex flex-1 items-center justify-center">
+        <div className="flex items-center gap-3 text-sm">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+          <span>Quill is waking up…</span>
+        </div>
       </div>
     </div>
   );
