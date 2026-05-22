@@ -633,6 +633,23 @@ The likeliest failure modes, in order:
 Support/Quill/`.** A previous test run wrote real data into the
    production app-support path. Always run with
    `QUILL_DATA_DIR=$PWD/.dev-userdata` to keep test fixtures isolated.
+8. **`Quill.app is damaged and can't be opened` after installing the
+   `.dmg`.** Modern macOS (Sonoma 14+, Sequoia 15+) sets the
+   `com.apple.quarantine` extended attribute on browser-downloaded DMGs
+   and refuses to launch unsigned (or only ad-hoc-signed) apps with that
+   flag set. The bundle is **fine** — it's just quarantined. Strip the
+   flag and launch:
+
+   ```bash
+   xattr -cr /Applications/Quill.app
+   open /Applications/Quill.app
+   ```
+
+   Phase 8 (real Developer ID + notarization) makes this go away. Until
+   then, the build sets `tauri.conf.json :: bundle.macOS.signingIdentity`
+   to `"-"` so the app is at least ad-hoc signed (`codesign -dvv` shows
+   `Signature=adhoc`), which makes the right-click → Open path work on
+   most installations.
 
 ---
 
