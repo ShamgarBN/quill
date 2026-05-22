@@ -34,13 +34,17 @@ See [`docs/PRD.md`](docs/PRD.md) for the full plan and [`HANDOFF.md`](HANDOFF.md
 1. Go to the [Releases page](https://github.com/ShamgarBN/writing-assistant/releases).
 2. Download `Quill_0.2.0_aarch64.dmg` (Apple Silicon only).
 3. Double-click the `.dmg`, drag **Quill.app** into your **Applications** folder.
-4. **First-launch Gatekeeper bypass.** Because the build isn't yet code-signed with a paid Apple Developer ID, macOS will refuse to open it on first run with a "cannot be opened because it is from an unidentified developer" dialog. To bypass:
-   - Open **Finder → Applications**.
-   - **Right-click** (or Control-click) **Quill.app** and pick **Open**.
-   - The dialog will reappear with an **Open** button. Click it.
-   - Future launches just work — macOS remembers your decision.
+4. **First-launch Gatekeeper bypass.** The bundle is **ad-hoc signed** but does **not** have an Apple Developer ID yet (that's Phase 8). Because the DMG is downloaded via the browser, macOS sets the `com.apple.quarantine` extended attribute on the app, and modern macOS (Sonoma 14+ / Sequoia 15+) will refuse to open it with one of two dialogs:
+   - **"Quill.app is damaged and can't be opened"** — Gatekeeper rejected it outright. The most reliable fix:
 
-   Alternative: **System Settings → Privacy & Security → "Open Anyway"** after the first refused launch.
+     ```bash
+     xattr -cr /Applications/Quill.app
+     ```
+
+     Then double-click the app. It opens, and macOS remembers the decision.
+   - **"Quill.app cannot be opened because the developer cannot be verified"** — the older dialog. Right-click (or Control-click) **Quill.app** in Applications, pick **Open**, then click **Open** in the new dialog.
+
+   If neither works, the universal escape hatch is the `xattr -cr` command above. It's safe — all it does is strip the quarantine flag macOS added when you downloaded the file.
 
 5. The app creates `~/Library/Application Support/Quill/` on first run. All your projects, canon, manuscripts, and the encrypted secret store live there.
 
