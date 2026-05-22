@@ -15,7 +15,8 @@ concurrency:
 
 env:
   PNPM_VERSION: 11
-  NODE_VERSION: 20
+  # pnpm 11 requires Node >= 22.13 (uses node:sqlite builtin).
+  NODE_VERSION: 22
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
 
