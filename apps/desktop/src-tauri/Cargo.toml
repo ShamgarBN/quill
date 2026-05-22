@@ -21,6 +21,7 @@ tauri-plugin-fs = "2"
 
 # --- async runtime ---
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
+async-trait = "0.1"
 
 # --- serialization ---
 serde = { version = "1", features = ["derive"] }
@@ -49,6 +50,19 @@ directories = "5"
 # prerequisite.) This keeps build times fast and the dependency surface tiny;
 # the Rust-native `gix` crate is not yet stable across minor versions for
 # our limited needs (init / add / commit / log).
+
+# --- canon ingest (PDF + Markdown + watcher) ---
+pdf-extract = "0.7"
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+regex = "1"
+sha2 = "0.10"
+
+# --- HTTP for cloud LLM calls (Phase 2+) ---
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+futures-util = "0.3"
+
+# --- text features (voice fingerprint) ---
+unicode-segmentation = "1"
 
 # --- tracing ---
 tracing = "0.1"
