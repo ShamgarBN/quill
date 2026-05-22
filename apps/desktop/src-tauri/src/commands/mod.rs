@@ -7,13 +7,17 @@
 //!
 //! Zero business logic in this layer — it lives in `services::*`.
 
+mod brain;
 mod canon;
+mod drafting;
 mod llm;
 mod manuscript;
 mod structure;
 mod voice;
 
+pub use brain::*;
 pub use canon::*;
+pub use drafting::*;
 pub use llm::*;
 pub use manuscript::*;
 pub use structure::*;

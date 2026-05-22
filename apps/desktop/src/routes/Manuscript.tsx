@@ -28,12 +28,14 @@ import {
   CircleSlash,
   Loader2,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
 import type { DriftReport, Scene, SceneContent } from "@/types";
 import { cn } from "@/lib/cn";
+import { DraftingPanel } from "@/routes/DraftingPanel";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 /** Don't even ask the backend for a drift score below this many words. */
@@ -60,6 +62,14 @@ export function ManuscriptView(): JSX.Element {
   const [drift, setDrift] = useState<DriftReport | null>(null);
   const [hasFingerprint, setHasFingerprint] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftingOpen, setDraftingOpen] = useState(false);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const selectionText =
+    selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
 
   // Refresh scene list whenever the project changes.
   const refreshScenes = useCallback(async () => {
@@ -199,6 +209,33 @@ export function ManuscriptView(): JSX.Element {
     }
   };
 
+  // Apply an AI suggestion at the current cursor / selection.
+  // Hooks must be declared before any early return so React can keep a
+  // stable hook order across renders (rules-of-hooks).
+  const onAppendToScene = useCallback(
+    (extra: string): void => {
+      const trimmed = extra.trim();
+      if (!trimmed) return;
+      setText((curr) => {
+        const sep = curr.length > 0 && !curr.endsWith("\n\n") ? "\n\n" : "";
+        return `${curr}${sep}${trimmed}\n`;
+      });
+    },
+    [setText],
+  );
+  const onReplaceSelection = useCallback(
+    (replacement: string): void => {
+      const trimmed = replacement;
+      setText((curr) => {
+        const start = Math.min(selection.start, curr.length);
+        const end = Math.min(selection.end, curr.length);
+        if (end <= start) return curr;
+        return curr.slice(0, start) + trimmed + curr.slice(end);
+      });
+    },
+    [selection, setText],
+  );
+
   if (!project) {
     return (
       <div className="flex h-full flex-col">
@@ -217,6 +254,17 @@ export function ManuscriptView(): JSX.Element {
         subtitle={project.name}
         right={
           <div className="flex items-center gap-3">
+            {activeId && !draftingOpen && (
+              <button
+                type="button"
+                onClick={() => setDraftingOpen(true)}
+                className="qbtn-secondary inline-flex h-7 items-center gap-1.5 px-2.5 text-xs"
+                title="Open drafting panel"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Draft
+              </button>
+            )}
             <SaveIndicator state={save} />
           </div>
         }
@@ -242,8 +290,10 @@ export function ManuscriptView(): JSX.Element {
             <EmptyState onCreate={onCreateScene} />
           ) : (
             <Editor
+              editorRef={editorRef}
               text={text}
               onChange={setText}
+              onSelectionChange={(s, e) => setSelection({ start: s, end: e })}
               wordCount={content?.word_count ?? 0}
               charCount={content?.char_count ?? 0}
               hasFingerprint={hasFingerprint}
@@ -251,6 +301,16 @@ export function ManuscriptView(): JSX.Element {
             />
           )}
         </div>
+
+        {draftingOpen && activeId && (
+          <DraftingPanel
+            sceneId={activeId}
+            selection={selectionText}
+            onAppendToScene={onAppendToScene}
+            onReplaceSelection={onReplaceSelection}
+            onClose={() => setDraftingOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -352,26 +412,37 @@ function SceneRow({
 // ---------- Editor ----------
 
 function Editor({
+  editorRef,
   text,
   onChange,
+  onSelectionChange,
   wordCount,
   charCount,
   hasFingerprint,
   drift,
 }: {
+  editorRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   text: string;
   onChange: (t: string) => void;
+  onSelectionChange: (start: number, end: number) => void;
   wordCount: number;
   charCount: number;
   hasFingerprint: boolean;
   drift: DriftReport | null;
 }): JSX.Element {
+  const reportSelection = (el: HTMLTextAreaElement): void => {
+    onSelectionChange(el.selectionStart, el.selectionEnd);
+  };
   return (
     <div className="flex flex-1 flex-col">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-8 py-6">
         <textarea
+          ref={editorRef}
           value={text}
           onChange={(e) => onChange(e.target.value)}
+          onSelect={(e) => reportSelection(e.currentTarget)}
+          onKeyUp={(e) => reportSelection(e.currentTarget)}
+          onMouseUp={(e) => reportSelection(e.currentTarget)}
           spellCheck
           autoFocus
           className={cn(

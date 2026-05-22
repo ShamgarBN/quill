@@ -44,15 +44,32 @@ phases implemented end-to-end:
 - **Phase 5 — Drafting MVP.** A real Manuscript view with a left scene rail,
   a centered editor, debounced autosave (800 ms), word/char counts, an
   on-canvas voice-drift indicator, and per-save Git commits.
+- **Phase 6 — Drafting orchestrator.** A side-by-side panel in the Manuscript
+  view exposes five operations (`continue`, `rewrite`, `tighten`, `expand`,
+  `critique`). The Rust orchestrator (`services::drafting`) reads scene text
+  from disk, looks up the linked beat, retrieves top-K canon chunks
+  (excluding any `do_not_send`), pulls the top-N voice anchors, and assembles
+  the LLM messages with a strict per-category character budget. Every call
+  is gated by the voice-drift detector — drifts above `0.7` block the
+  suggestion behind an explicit override toggle and surface the worst
+  feature deltas. The "what gets sent" preview is wired and can be toggled
+  off via Settings. Audit log records categories + token counts only.
+- **Phase 7 — Second brain.** Character Bible and Idea Park are live.
+  Characters carry name, aliases, role, motivation, voice notes, arc
+  one-liner, and a `secrets` field that is force-tagged `secrets_do_not_send`.
+  Ideas carry text, tags, and an idea-level `do_not_send` flag. Cross-link
+  search runs over scenes and canon chunks (case-insensitive substring on
+  name + aliases) so you can see every mention of a character at a glance.
+  Both stores are plain JSON under `<project>/bible/` and `<project>/ideas/`.
 
-Everything compiles cleanly: 75 Rust unit tests, zero clippy warnings under
-`-D warnings`, zero TypeScript errors, ESLint clean, Prettier clean, rustfmt
-clean.
+Everything compiles cleanly: **98 Rust unit tests**, zero clippy warnings
+under `-D warnings`, zero TypeScript errors, ESLint clean, Prettier clean,
+rustfmt clean.
 
-What is NOT yet implemented (do these next, in order): chat-driven
-drafting workflows that actually call the LLMs, inline track-changes UX,
-the Character Bible / Idea Park tabs (currently placeholder routes), and
-distribution (signing + notarization + auto-update).
+What is NOT yet implemented (do these next, in order): inline
+track-changes UX (Lexical-based; Phase 8 plan), code-signing + notarization
++ auto-update (Phase 8 distribution), and the live Obsidian vault watcher
+(Phase 5.x, plumbing exists).
 
 ---
 
@@ -109,12 +126,14 @@ fantasy-novel/
 │  │  ├─ components/             ← shell, layout primitives
 │  │  ├─ lib/                    ← cn(), ipc.ts (typed Tauri bindings)
 │  │  ├─ routes/                 ← one file per top-level view
-│  │  │  ├─ Manuscript.tsx       ← Phase 5 editor
+│  │  │  ├─ Manuscript.tsx       ← Phase 5 editor + Phase 6 draft button
+│  │  │  ├─ DraftingPanel.tsx    ← Phase 6 side-by-side AI suggestion panel
 │  │  │  ├─ Beats.tsx            ← Phase 3 beat sheet
 │  │  │  ├─ Canon.tsx            ← Phase 1 ingest + search
 │  │  │  ├─ Research.tsx         ← Phase 4 reference pins + drift tester
 │  │  │  ├─ Settings.tsx         ← Phase 2 provider keys + audit log
-│  │  │  └─ Bible.tsx, Ideas.tsx ← placeholders for Phase 7
+│  │  │  ├─ Bible.tsx            ← Phase 7 character bible + cross-links
+│  │  │  └─ Ideas.tsx            ← Phase 7 idea park
 │  │  ├─ stores/app.ts           ← Zustand store
 │  │  ├─ styles/globals.css      ← Tailwind + design tokens
 │  │  └─ types.ts                ← mirrors Rust serde models
@@ -123,8 +142,10 @@ fantasy-novel/
 │  │     ├─ commands/            ← thin Tauri command handlers
 │  │     ├─ models/              ← serde-serialized data models
 │  │     ├─ services/            ← all business logic
+│  │     │  ├─ brain/            ← Phase 7 Character Bible + Idea Park
 │  │     │  ├─ canon/            ← extract, chunker, ingest, watcher
 │  │     │  ├─ crypto/           ← Argon2id + AES-GCM secret store
+│  │     │  ├─ drafting/         ← Phase 6 prompt assembly + orchestrator
 │  │     │  ├─ git/              ← system `git` shell-out
 │  │     │  ├─ llm/              ← gemini, groq, mock + audit
 │  │     │  ├─ manuscript/       ← per-scene Markdown content
@@ -275,7 +296,7 @@ new code.
 cd apps/desktop/src-tauri
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test                  # → 75 passed; 0 failed
+cargo test                  # → 98 passed; 0 failed
 cd ../../..
 
 # --- Frontend gates ---
@@ -425,7 +446,7 @@ cd apps/desktop/src-tauri
 cargo fmt                                     # write
 cargo fmt --check                             # verify
 cargo clippy --all-targets -- -D warnings
-cargo test                                    # 75 tests
+cargo test                                    # 98 tests
 cargo build --release
 
 # --- Frontend gates ---
@@ -528,27 +549,33 @@ git push --tags
 
 ## 8. What I would do next, in priority order
 
-1. **Phase 6.1: minimal "Draft this scene" button.** In Manuscript view,
-   add a button that takes the current scene's outline (title + Story Grid
-   five commandments + linked beat) plus the top-K canon chunks (excluding
-   `do_not_send`), assembles a prompt, calls the configured chat provider,
-   and pastes the result above the user's existing prose. Show the
-   "what will be sent" preview before the call (the audit-log infrastructure
-   already records the categories — the preview is just rendering them).
-2. **Phase 6.2: drift gate.** Block the draft action if the candidate's
-   drift score is `> 0.7` and surface the top three deltas so the user
-   knows _why_ it's off (e.g., "sentences are 2.3× longer than your voice").
-3. **Phase 6.3: track-changes diff.** Use a JS diff library (e.g., `diff` or
-   `fast-diff`) to render inserts/deletes inline. The user accepts/rejects
-   per chunk. This pairs naturally with the existing autosave loop.
-4. **Phase 7: Character Bible + Idea Park.** Both are placeholder routes.
-   The model is straightforward: a JSON file per character / idea card,
-   stored under `<project>/bible/` and `<project>/ideas/`. Reuse the same
-   `atomic_write_json` helper.
-5. **Phase 8: Distribution.** Code-sign with your Apple Developer ID,
-   notarize via `notarytool`, ship a `.dmg` via the Tauri updater. Don't
-   start this until the app is feature-complete enough that you actually
-   want to install it as the production binary.
+1. **Phase 6.3 — inline track-changes UX.** Today the drafting panel offers
+   "Append" (paste the suggestion at the end of the scene) and "Replace"
+   (swap the suggestion in for the current selection). The next step is
+   replacing the `<textarea>` with a Lexical editor and rendering inserts
+   and deletes inline as styled spans the user can accept or reject per
+   chunk. The diff itself is straightforward (`diff` / `fast-diff`); the
+   real work is migrating the autosave loop to Lexical's command stream
+   without breaking the per-save Git commit.
+2. **Phase 5.x — Obsidian vault watcher in the UI.** The Rust plumbing
+   already exists at `apps/desktop/src-tauri/src/services/canon/watcher.rs`.
+   Surface a vault-path picker in Settings, expose a Tauri command to
+   start/stop the watcher, and add a switch in the Canon tab. Auto-reingest
+   on change (debounced 2 s) is the goal.
+3. **Phase 8 — Distribution.** Code-sign with your Apple Developer ID,
+   notarize via `notarytool`, ship a `.dmg` via the Tauri updater. The
+   `bundle.macOS.signingIdentity` field in `tauri.conf.json` is wired to
+   read `null` today — flip it to your Developer ID and the rest of the
+   pipeline is templated. Don't start this until you're tired of bypassing
+   Gatekeeper on every install.
+4. **Phase 9 — Local embeddings.** Swap `services::vector::JsonVectorStore`
+   for a LanceDB-backed impl and replace the Gemini embeddings provider
+   with `bge-m3` via `candle-transformers`. Both are contained refactors —
+   `VectorStore` and `EmbeddingsProvider` are the only traits you touch.
+5. **Polish:** the Character Bible's cross-link query is a substring scan
+   today; this is fine through ~hundreds of characters but degrades on a
+   sprawling cast. When the friction shows up, switch to an inverted index
+   keyed on lowercased tokens. Same scaling story for Idea Park search.
 
 The thing I would NOT do next is swap the vector store for LanceDB. The
 JSON store handles tens of thousands of chunks fine and the LanceDB swap is
