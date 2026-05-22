@@ -1,3 +1,4 @@
+use crate::services::llm::ProviderId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -31,19 +32,32 @@ pub enum GenerationMode {
 ///
 /// Sensitive values (API keys etc.) DO NOT live here — they go through
 /// `services::crypto::SecretStore` and are sealed at rest.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub theme: ThemePreference,
     pub prose_font: FontPreference,
     pub privacy_acknowledged_at: Option<DateTime<Utc>>,
     pub default_generation_mode: GenerationMode,
     pub show_what_gets_sent: bool,
+    /// Active chat provider for drafting + critique. Default Mock so a
+    /// fresh install never makes a network call before the user opts in.
+    pub chat_provider: ProviderId,
+    /// Active embeddings provider. Default Mock; user opts into Gemini.
+    pub embedding_provider: ProviderId,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self::fresh()
+    }
 }
 
 impl Settings {
     /// Default settings for a fresh install. We default `show_what_gets_sent`
     /// to true so the user sees exactly what's transmitted on their first
-    /// cloud call — they can disable it later in Settings.
+    /// cloud call. Provider defaults are Mock so the app never reaches the
+    /// network until the user explicitly switches.
     pub fn fresh() -> Self {
         Self {
             theme: ThemePreference::System,
@@ -51,6 +65,8 @@ impl Settings {
             privacy_acknowledged_at: None,
             default_generation_mode: GenerationMode::Paragraph,
             show_what_gets_sent: true,
+            chat_provider: ProviderId::Mock,
+            embedding_provider: ProviderId::Mock,
         }
     }
 }
@@ -64,6 +80,8 @@ pub struct SettingsPatch {
     pub privacy_acknowledged_at: Option<Option<DateTime<Utc>>>,
     pub default_generation_mode: Option<GenerationMode>,
     pub show_what_gets_sent: Option<bool>,
+    pub chat_provider: Option<ProviderId>,
+    pub embedding_provider: Option<ProviderId>,
 }
 
 impl SettingsPatch {
@@ -82,6 +100,12 @@ impl SettingsPatch {
         }
         if let Some(v) = self.show_what_gets_sent {
             s.show_what_gets_sent = v;
+        }
+        if let Some(v) = self.chat_provider {
+            s.chat_provider = v;
+        }
+        if let Some(v) = self.embedding_provider {
+            s.embedding_provider = v;
         }
     }
 }

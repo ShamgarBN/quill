@@ -17,29 +17,29 @@
 @layer base {
   :root {
     /* surfaces (warm paper) */
-    --surface:        252 250 245;   /* page */
-    --surface-subtle: 246 242 234;   /* sidebar */
-    --surface-muted:  239 234 222;   /* input bg, code blocks */
-    --surface-inset:  231 225 211;   /* deeper inset */
-    --surface-overlay: 255 252 246;  /* popovers, dialogs */
+    --surface: 252 250 245; /* page */
+    --surface-subtle: 246 242 234; /* sidebar */
+    --surface-muted: 239 234 222; /* input bg, code blocks */
+    --surface-inset: 231 225 211; /* deeper inset */
+    --surface-overlay: 255 252 246; /* popovers, dialogs */
 
     /* ink (text) — warm-tinted near-black */
-    --ink:        38 33 26;
-    --ink-muted:  92 84 71;
+    --ink: 38 33 26;
+    --ink-muted: 92 84 71;
     --ink-subtle: 138 128 110;
-    --ink-faint:  186 176 156;
+    --ink-faint: 186 176 156;
 
     /* hairlines */
-    --line:        217 209 192;
+    --line: 217 209 192;
     --line-subtle: 233 226 211;
 
     /* accent: warm amber */
-    --accent:        200 146 74;     /* #C8924A */
-    --accent-hover:  176 124 56;
+    --accent: 200 146 74; /* #C8924A */
+    --accent-hover: 176 124 56;
     --accent-subtle: 245 230 207;
-    --accent-ink:    255 251 244;    /* text on accent fill */
+    --accent-ink: 255 251 244; /* text on accent fill */
 
-    --danger:  176 56 56;
+    --danger: 176 56 56;
     --warning: 184 124 36;
     --success: 70 134 88;
 
@@ -48,36 +48,38 @@
 
   .dark {
     /* surfaces (cool slate) */
-    --surface:        18 20 24;
+    --surface: 18 20 24;
     --surface-subtle: 24 27 32;
-    --surface-muted:  32 36 42;
-    --surface-inset:  14 16 20;
+    --surface-muted: 32 36 42;
+    --surface-inset: 14 16 20;
     --surface-overlay: 28 31 36;
 
     /* ink */
-    --ink:        236 232 224;
-    --ink-muted:  178 174 166;
+    --ink: 236 232 224;
+    --ink-muted: 178 174 166;
     --ink-subtle: 130 126 118;
-    --ink-faint:  86 84 80;
+    --ink-faint: 86 84 80;
 
     /* hairlines */
-    --line:        46 50 56;
+    --line: 46 50 56;
     --line-subtle: 36 39 44;
 
     /* accent: warmer amber for dark */
-    --accent:        224 180 112;    /* #E0B470 */
-    --accent-hover:  240 196 128;
+    --accent: 224 180 112; /* #E0B470 */
+    --accent-hover: 240 196 128;
     --accent-subtle: 70 52 28;
-    --accent-ink:    20 14 6;
+    --accent-ink: 20 14 6;
 
-    --danger:  226 102 102;
+    --danger: 226 102 102;
     --warning: 232 178 96;
     --success: 124 196 144;
 
     color-scheme: dark;
   }
 
-  html, body, #root {
+  html,
+  body,
+  #root {
     height: 100%;
     margin: 0;
   }

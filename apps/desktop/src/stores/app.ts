@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import type { Project, Settings, ThemePreference } from "@/types";
+import type { Project, Settings, SettingsPatch, ThemePreference } from "@/types";
 import * as ipc from "@/lib/ipc";
 
 export type RouteId =
   | "manuscript"
   | "beats"
+  | "canon"
   | "bible"
   | "ideas"
   | "research"
@@ -34,7 +35,7 @@ interface AppState {
   toggleSidebar: () => void;
   toggleFocus: () => void;
   setTheme: (t: ThemePreference) => Promise<void>;
-  updateSettings: (patch: Partial<Settings>) => Promise<void>;
+  updateSettings: (patch: SettingsPatch) => Promise<void>;
   refreshProjects: () => Promise<void>;
   createProject: (name: string) => Promise<Project>;
   openProject: (id: string) => Promise<void>;
@@ -42,9 +43,7 @@ interface AppState {
 
 function resolveTheme(pref: ThemePreference): "light" | "dark" {
   if (pref === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return pref;
 }
@@ -74,7 +73,6 @@ export const useApp = create<AppState>((set, get) => ({
       const resolved = resolveTheme(settings.theme);
       applyTheme(resolved);
 
-      // Listen for system theme changes if user picked 'system'
       window
         .matchMedia("(prefers-color-scheme: dark)")
         .addEventListener("change", (ev) => {
@@ -90,7 +88,6 @@ export const useApp = create<AppState>((set, get) => ({
         settings,
         projects,
         resolvedTheme: resolved,
-        // If there's exactly one project, open it; else stay at the picker.
         currentProject: projects.length === 1 ? (projects[0] ?? null) : null,
         route: projects.length === 1 ? "manuscript" : "settings",
       });
@@ -102,8 +99,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   setRoute: (r) => set({ route: r }),
 
-  toggleSidebar: () =>
-    set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   toggleFocus: () => set((s) => ({ focusMode: !s.focusMode })),
 

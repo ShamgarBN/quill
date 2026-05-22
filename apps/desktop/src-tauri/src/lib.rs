@@ -2,6 +2,12 @@
 //!
 //! See `docs/ARCHITECTURE.md` for module boundaries.
 
+// Many APIs are scaffolded for upcoming phases (chat provider trait, vault
+// watcher, beat helpers, etc.) and aren't called from the current command
+// surface. We accept dead_code at the crate level rather than peppering
+// individual `#[allow]` annotations across the codebase.
+#![allow(dead_code)]
+
 mod commands;
 mod config;
 mod error;
@@ -44,6 +50,33 @@ pub fn run() {
             commands::secret_has,
             commands::git_commit,
             commands::git_log,
+            commands::canon_ingest_file,
+            commands::canon_search,
+            commands::canon_count,
+            commands::llm_provider_status,
+            commands::llm_ping,
+            commands::audit_tail,
+            commands::audit_path,
+            commands::structure_beat_sheet_get,
+            commands::structure_beat_update,
+            commands::structure_beat_sheet_set_target,
+            commands::structure_beat_sheet_set_frozen,
+            commands::structure_outline_preview,
+            commands::structure_outline_apply,
+            commands::structure_scenes_list,
+            commands::structure_scene_create,
+            commands::structure_scene_delete,
+            commands::structure_scene_reorder,
+            commands::structure_scene_update,
+            commands::manuscript_load_scene,
+            commands::manuscript_save_scene,
+            commands::voice_pins_list,
+            commands::voice_pins_create,
+            commands::voice_pins_delete,
+            commands::voice_pins_update,
+            commands::voice_fingerprint,
+            commands::voice_extract,
+            commands::voice_drift,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

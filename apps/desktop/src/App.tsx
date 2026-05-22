@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { ManuscriptView } from "@/routes/Manuscript";
 import { BeatsView } from "@/routes/Beats";
+import { CanonView } from "@/routes/Canon";
 import { BibleView } from "@/routes/Bible";
 import { IdeasView } from "@/routes/Ideas";
 import { ResearchView } from "@/routes/Research";
@@ -65,6 +66,7 @@ export default function App(): JSX.Element {
         >
           {route === "manuscript" && <ManuscriptView />}
           {route === "beats" && <BeatsView />}
+          {route === "canon" && <CanonView />}
           {route === "bible" && <BibleView />}
           {route === "ideas" && <IdeasView />}
           {route === "research" && <ResearchView />}

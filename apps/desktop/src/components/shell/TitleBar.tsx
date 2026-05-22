@@ -4,8 +4,8 @@ import type { ThemePreference } from "@/types";
 import { cn } from "@/lib/cn";
 
 const THEMES: { id: ThemePreference; icon: typeof Sun; label: string }[] = [
-  { id: "light",  icon: Sun,     label: "Light"  },
-  { id: "dark",   icon: Moon,    label: "Dark"   },
+  { id: "light", icon: Sun, label: "Light" },
+  { id: "dark", icon: Moon, label: "Dark" },
   { id: "system", icon: Monitor, label: "System" },
 ];
 
