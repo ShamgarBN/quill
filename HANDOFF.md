@@ -56,7 +56,49 @@ distribution (signing + notarization + auto-update).
 
 ---
 
-## 2. Repo orientation
+## 2. Git state at handoff
+
+Remote: **`https://github.com/ShamgarBN/writing-assistant.git`**.
+Branch: **`main`** (tracking `origin/main`).
+
+All work is committed AND pushed. The `main` branch on GitHub matches your
+local tip. As of `handoff-v1`, the history is:
+
+```text
+bc3410e chore(handoff): wire phases 1-5 into the app shell + handoff docs   ← handoff-v1
+ec79d2f feat(phase-5): manuscript editor MVP with autosave + drift gauge    ← phase-5-complete
+b37b8b2 feat(phase-4): voice fingerprint pipeline + reference pin store     ← phase-4-complete
+8cbf6e1 feat(phase-3): structural engine — Save the Cat beats + Story Grid  ← phase-3-complete
+4e1a163 feat(phase-2): LLM provider layer with Gemini, Groq, mock + audit   ← phase-2-complete
+340676f feat(phase-1): canon ingestion (PDF/Markdown/TXT) + semantic search ← phase-1-complete
+b91bbac feat(phase-0): foundation — Tauri scaffold, theming, project storage…  ← phase-0-complete
+```
+
+Tags pushed:
+
+```text
+phase-0-complete  phase-1-complete  phase-2-complete  phase-3-complete
+phase-4-complete  phase-5-complete  handoff-v1
+```
+
+**Note on the commit shape.** Each phase commit contains the new modules
+for that phase but does NOT contain the integration plumbing
+(`lib.rs::invoke_handler!`, `commands/mod.rs`, `state.rs`, `types.ts`,
+`lib/ipc.ts`). All of that lives in the final
+`chore(handoff)` commit. The narrative reads cleanly per phase, but only
+the tip (`handoff-v1`) compiles. Don't `git checkout phase-2-complete`
+expecting a runnable app — check out `handoff-v1` (or `main`) instead.
+
+If you ever need to re-create the push from this machine:
+
+```bash
+git push -u origin main
+git push --tags
+```
+
+---
+
+## 3. Repo orientation
 
 ```
 fantasy-novel/
@@ -111,76 +153,167 @@ fantasy-novel/
 
 ---
 
-## 3. What to do on the new MacBook (in order)
+## 4. What to do on the new MacBook (in order)
 
-### 3.1 Install prerequisites
+Walk these in order. Don't skip the verification step (4.5) — if any of
+those gates is red, stop and fix it before you start writing code, because
+that's exactly the state I left it in and a regression there means
+something got mangled in transit.
+
+### 4.1 Install prerequisites
 
 ```bash
-# Apple toolchain
+# Apple toolchain (provides /usr/bin/git, clang, codesign, etc.)
 xcode-select --install
 
 # Rust 1.78+
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup default stable
 
-# Node 20+ (via fnm or homebrew)
-brew install fnm && fnm install 20 && fnm use 20
+# Node 20+ — fnm is the lightweight option
+brew install fnm
+echo 'eval "$(fnm env --use-on-cd)"' >> ~/.zshrc && exec zsh
+fnm install 20 && fnm use 20
 
-# pnpm 9+
-corepack enable && corepack prepare pnpm@9 --activate
+# pnpm 9+ via corepack (ships with Node)
+corepack enable
+corepack prepare pnpm@9 --activate
 ```
 
-Also make sure git ≥ 2.40 is installed (it ships with Xcode CLT). Optional
-but useful: `brew install gh` for GitHub CLI.
-
-### 3.2 Pull the repo
+Verify each is on PATH:
 
 ```bash
-cd ~/Desktop          # or wherever
+xcode-select -p   # → /Applications/Xcode.app/... or /Library/Developer/...
+git --version     # → ≥ 2.40 (ships with Xcode CLT)
+rustc --version   # → ≥ 1.78
+node --version    # → ≥ 20
+pnpm --version    # → ≥ 9
+```
+
+Optional but useful: `brew install gh` for GitHub CLI (makes auth setup a
+one-liner — see 4.2 below).
+
+### 4.2 Authenticate to GitHub (one-time)
+
+The repo is public, so cloning over HTTPS works without auth. You only
+need credentials when you push. Pick one of these:
+
+**Option A — GitHub CLI (easiest):**
+
+```bash
+brew install gh
+gh auth login
+# pick: GitHub.com → HTTPS → authenticate via web browser
+```
+
+`gh` writes a credential helper that git will reuse for any HTTPS push.
+
+**Option B — SSH key:**
+
+```bash
+ssh-keygen -t ed25519 -C "you@example.com"
+cat ~/.ssh/id_ed25519.pub | pbcopy
+# paste into https://github.com/settings/ssh/new
+ssh -T git@github.com   # should greet you by username
+```
+
+If you go with SSH, switch the remote URL after cloning:
+
+```bash
+git remote set-url origin git@github.com:ShamgarBN/writing-assistant.git
+```
+
+### 4.3 Clone the repo
+
+```bash
+cd ~/Desktop                # or wherever you want the working tree
 git clone https://github.com/ShamgarBN/writing-assistant.git
 cd writing-assistant
+
+# Verify you got the full handoff state
+git log --oneline -1        # → bc3410e chore(handoff): wire phases 1-5 …
+git tag --list | sort       # → all 7 tags listed below
+```
+
+Expected tags:
+
+```text
+handoff-v1
+phase-0-complete
+phase-1-complete
+phase-2-complete
+phase-3-complete
+phase-4-complete
+phase-5-complete
+```
+
+### 4.4 Bootstrap dependencies
+
+```bash
 ./scripts/bootstrap.sh
 ```
 
-If `bootstrap.sh` complains, the manual fallback is:
+The bootstrap script verifies the toolchain, runs `pnpm install`, and
+pre-fetches the Rust crate cache. If it complains, the manual fallback is:
 
 ```bash
 cd apps/desktop
 pnpm install
 cd src-tauri && cargo fetch
+cd ../..
 ```
 
-### 3.3 First run
+### 4.5 Verify a clean state (do not skip)
+
+Run all six gates. They all pass at `handoff-v1`; if anything is red on
+the new machine, treat it as a transit regression and fix before writing
+new code.
 
 ```bash
-# From repo root, isolating dev data so you don't pollute the
-# eventual production app-support directory:
-QUILL_DATA_DIR=$PWD/.dev-userdata pnpm --filter desktop tauri dev
-```
-
-The first build is ~5–10 minutes (Tauri pulls macOS frameworks and compiles
-all Rust deps). Subsequent builds are seconds.
-
-### 3.4 Sanity tests
-
-```bash
+# --- Rust gates ---
 cd apps/desktop/src-tauri
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test
-```
+cargo test                  # → 75 passed; 0 failed
+cd ../../..
 
-```bash
+# --- Frontend gates ---
 cd apps/desktop
 pnpm typecheck
 pnpm lint
 pnpm exec prettier --check .
+cd ../..
 ```
 
-All should be green.
+Optional but recommended for proving the toolchain is healthy:
+
+```bash
+cd apps/desktop && pnpm build && cd ../..              # Vite production bundle
+cd apps/desktop/src-tauri && cargo build --release && cd ../../..   # Rust release
+```
+
+The Vite bundle should report ≈236 KB JS (≈72 KB gzipped). The Rust
+release build is 1–2 minutes from a warm cache, 5–10 minutes cold.
+
+### 4.6 First run of the app
+
+```bash
+# From repo root. QUILL_DATA_DIR keeps your dev data out of the
+# production app-support path, so you can wipe and start over freely.
+QUILL_DATA_DIR=$PWD/.dev-userdata pnpm --filter desktop tauri dev
+```
+
+The first build is 5–10 minutes (Tauri pulls macOS frameworks and
+compiles all Rust deps). Subsequent dev launches are a few seconds.
+
+When the window opens, you should see the Quill shell with sidebar tabs
+(Manuscript / Beats / Canon / Bible / Ideas / Research / Settings).
+Create a project from the project picker, then proceed to section 5.
 
 ---
 
-## 4. Connecting your existing data
+## 5. Connecting your existing data
 
 ### 4.1 The D&D vault
 
@@ -239,7 +372,7 @@ against your scene as you write (after ~30 words).
 
 ---
 
-## 5. Architecture quick reference
+## 6. Architecture quick reference
 
 The two rules that keep the codebase honest:
 
@@ -281,38 +414,119 @@ Three abstractions to know:
 
 ---
 
-## 6. Scripts and commands cheat sheet
+## 7. Scripts and commands cheat sheet
 
 ```bash
-# Dev loop
+# --- Dev loop ---
 QUILL_DATA_DIR=$PWD/.dev-userdata pnpm --filter desktop tauri dev
 
-# Rust gates
+# --- Rust gates ---
 cd apps/desktop/src-tauri
-cargo fmt
+cargo fmt                                     # write
+cargo fmt --check                             # verify
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test                                    # 75 tests
+cargo build --release
 
-# Frontend gates
+# --- Frontend gates ---
 cd apps/desktop
 pnpm typecheck
 pnpm lint
-pnpm format        # write
-pnpm format:check  # verify
+pnpm format                                   # write
+pnpm format:check                             # verify
+pnpm build                                    # Vite production bundle
 
-# Release build (unsigned, no notarization yet)
+# --- Release build (unsigned, no notarization yet) ---
 pnpm --filter desktop tauri build
+
+# --- Git ops ---
+git status                                    # should be clean at handoff-v1
+git log --oneline -10
+git tag --list | sort
+git push                                      # main is tracking origin/main
+git push --tags                               # if you add new ones
 ```
 
 Useful environment variables:
 
 - `QUILL_DATA_DIR` — override the app-support directory. Use a per-checkout
-  path so `cargo test` and the live app don't collide.
+  path so `cargo test` and the live app don't collide. The `.dev-userdata/`
+  folder it creates is gitignored.
 - `RUST_LOG=quill_desktop=debug` — verbose tracing.
+
+### 7.1 The exact command sequence I used to land `handoff-v1`
+
+If you need to reproduce or audit the handoff itself, this is the
+sequence (run from the repo root). It assumes a clean working tree
+already containing the phase work.
+
+```bash
+# Untrack regenerated artifacts that were committed by accident in
+# Phase 0 (Tauri schemas regenerate on every build; tsbuildinfo is
+# Vite's incremental cache).
+git rm --cached apps/desktop/src-tauri/gen/schemas/*.json
+git rm --cached apps/desktop/tsconfig.tsbuildinfo
+
+# `.gitignore` was using bare `src-tauri/...` patterns which only match
+# at repo root. Rewrite to `**/src-tauri/...` so target/ and gen/ are
+# ignored under any workspace member.
+
+# Phase commits — each stages only the new files for that phase. Shared
+# files (lib.rs, mod.rs, types.ts, ipc.ts, state.rs, settings) all land
+# in the final integration commit.
+
+git add apps/desktop/src-tauri/Cargo.{toml,lock} \
+        apps/desktop/src-tauri/src/models/canon.rs \
+        apps/desktop/src-tauri/src/services/canon/ \
+        apps/desktop/src-tauri/src/services/vector/ \
+        apps/desktop/src-tauri/src/services/llm/embeddings.rs \
+        apps/desktop/src-tauri/src/services/llm/mock.rs \
+        apps/desktop/src-tauri/src/commands/canon.rs \
+        apps/desktop/src/routes/Canon.tsx
+git commit -m "feat(phase-1): canon ingestion (PDF/Markdown/TXT) with semantic search"
+git tag phase-1-complete
+
+git add apps/desktop/src-tauri/src/services/llm/{audit,chat,gemini,groq,mod,provider}.rs \
+        apps/desktop/src-tauri/src/commands/llm.rs
+git commit -m "feat(phase-2): LLM provider layer with Gemini, Groq, mock + audit log"
+git tag phase-2-complete
+
+git add apps/desktop/src-tauri/src/models/structure.rs \
+        apps/desktop/src-tauri/src/services/structure/ \
+        apps/desktop/src-tauri/src/commands/structure.rs \
+        apps/desktop/src/routes/Beats.tsx
+git commit -m "feat(phase-3): structural engine — Save the Cat beats + Story Grid scenes"
+git tag phase-3-complete
+
+git add apps/desktop/src-tauri/src/services/voice/ \
+        apps/desktop/src-tauri/src/commands/voice.rs \
+        apps/desktop/src/routes/Research.tsx
+git commit -m "feat(phase-4): voice fingerprint pipeline + reference pin store"
+git tag phase-4-complete
+
+git add apps/desktop/src-tauri/src/services/manuscript/ \
+        apps/desktop/src-tauri/src/commands/manuscript.rs \
+        apps/desktop/src-tauri/src/services/storage/mod.rs \
+        apps/desktop/src/routes/Manuscript.tsx
+git commit -m "feat(phase-5): manuscript editor MVP with autosave + drift gauge"
+git tag phase-5-complete
+
+# Final integration: all the wire-up files (mod.rs, lib.rs, types.ts,
+# ipc.ts, state.rs, settings, Sidebar.tsx, App.tsx, Settings.tsx, …)
+# plus HANDOFF.md, README, gitignore, prettierignore, etc.
+git add -A
+git commit -m "chore(handoff): wire phases 1-5 into the app shell + handoff docs"
+git tag handoff-v1
+
+# Push everything (one-time; afterwards `git push` and `git push --tags`
+# are enough).
+git push -u origin main
+git push --tags
+```
 
 ---
 
-## 7. What I would do next, in priority order
+## 8. What I would do next, in priority order
 
 1. **Phase 6.1: minimal "Draft this scene" button.** In Manuscript view,
    add a button that takes the current scene's outline (title + Story Grid
@@ -343,7 +557,7 @@ actually a bottleneck.
 
 ---
 
-## 8. Known sharp edges
+## 9. Known sharp edges
 
 - The `pdf-extract` crate is heuristic. Tables, multi-column layouts, and
   scanned PDFs all degrade. Prefer Markdown sources whenever possible.
@@ -364,26 +578,38 @@ actually a bottleneck.
 
 ---
 
-## 9. If something on the new machine breaks
+## 10. If something on the new machine breaks
 
 The likeliest failure modes, in order:
 
-1. **`pnpm install` fails on a `node-gyp` step.** Make sure Xcode CLT is
+1. **`git clone` works but `git push` rejects.** You haven't authenticated
+   to GitHub on the new machine. See section 4.2 — `gh auth login` is the
+   easy path. If you already set up SSH and `git push` still uses HTTPS,
+   run `git remote set-url origin git@github.com:ShamgarBN/writing-assistant.git`.
+2. **`pnpm install` fails on a `node-gyp` step.** Make sure Xcode CLT is
    installed (`xcode-select -p` should print a path). On Apple Silicon you
    may also need `softwareupdate --install-rosetta --agree-to-license` if
    any dependency still ships an x86_64 prebuilt.
-2. **`cargo build` fails compiling `pdf-extract` or `aes-gcm`.** Both
+3. **`cargo build` fails compiling `pdf-extract` or `aes-gcm`.** Both
    require recent Rust; run `rustup update` if you're below 1.78.
-3. **`tauri dev` opens a blank white window.** The Vite dev server probably
+4. **`tauri dev` opens a blank white window.** The Vite dev server probably
    isn't reachable on the configured port. Check `apps/desktop/vite.config.ts`
    and the matching `tauri.conf.json` — they must agree on the dev URL.
-4. **Saves silently fail.** Likely a permissions issue on
+5. **Saves silently fail.** Likely a permissions issue on
    `~/Library/Application Support/Quill/`. Check ownership; if you ran the
    app once as root by mistake, `chown -R $(whoami)` the directory.
+6. **`pnpm exec prettier --check .` reports thousands of files in
+   `src-tauri/target/`.** `.prettierignore` was missing or stale; check that
+   `apps/desktop/.prettierignore` exists and lists `src-tauri/`. If you
+   regenerate it, also keep `dist/`, `node_modules/`, and the lockfiles.
+7. **`cargo test` reports phantom failures from `~/Library/Application
+Support/Quill/`.** A previous test run wrote real data into the
+   production app-support path. Always run with
+   `QUILL_DATA_DIR=$PWD/.dev-userdata` to keep test fixtures isolated.
 
 ---
 
-## 10. Closing note from the past
+## 11. Closing note from the past
 
 The hardest part of this kind of project is staying disciplined about what
 the LLM does and doesn't do. Quill is built on the premise that the LLM is
