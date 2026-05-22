@@ -1,0 +1,13 @@
+# pnpm 11+ reads its workspace-level settings from this file. We are not
+# actually a workspace (single package), but pnpm requires this file to find
+# the `onlyBuiltDependencies` allow-list. Without it, pnpm refuses to run
+# build scripts (and esbuild's postinstall is required to fetch its native
+# binary).
+onlyBuiltDependencies:
+  - esbuild
+
+# Mirror in the legacy "allowBuilds" map written by `pnpm approve-builds`,
+# kept so a CI run that calls `pnpm install` honors the approval without an
+# interactive `approve-builds` step.
+allowBuilds:
+  esbuild: true

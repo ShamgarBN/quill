@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Capabilities granted to the main window for Phase 0. Tightly scoped: no shell, no full-disk fs.","local":true,"windows":["main"],"permissions":["core:default","core:window:default","core:webview:default","core:event:default","dialog:default"]}}
