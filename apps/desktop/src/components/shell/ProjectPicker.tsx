@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApp } from "@/stores/app";
 import { Feather, Plus } from "lucide-react";
+import { WindowDragBar } from "@/components/shell/WindowDragBar";
 
 export function ProjectPicker(): JSX.Element {
   const projects = useApp((s) => s.projects);
@@ -27,8 +28,10 @@ export function ProjectPicker(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-surface px-6 py-12">
-      <div className="w-full max-w-md">
+    <div className="flex h-full flex-col bg-surface">
+      <WindowDragBar />
+      <div className="flex flex-1 items-center justify-center px-6 py-12">
+        <div className="w-full max-w-md">
         <header className="mb-8 flex flex-col items-center text-center">
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent-subtle text-accent">
             <Feather className="h-6 w-6" />
@@ -101,6 +104,7 @@ export function ProjectPicker(): JSX.Element {
             </ul>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
