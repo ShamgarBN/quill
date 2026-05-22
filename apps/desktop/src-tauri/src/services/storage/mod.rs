@@ -20,6 +20,11 @@ pub fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     atomic::write_json(path, value)
 }
 
+/// Re-exported atomic byte write helper for non-JSON content (e.g. Markdown).
+pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    atomic::write_bytes(path, bytes)
+}
+
 /// Read JSON from disk; if file missing, return `T::default()`.
 pub fn atomic_read_json_or_default<T>(path: &Path) -> Result<T>
 where
