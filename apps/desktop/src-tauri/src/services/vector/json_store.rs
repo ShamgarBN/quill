@@ -140,6 +140,18 @@ impl VectorStore for JsonVectorStore {
             .filter(|e| e.chunk.project_id == project_id)
             .count() as u64)
     }
+
+    async fn chunks_for_project(&self, project_id: &str) -> Result<Vec<CanonChunk>> {
+        let g = self
+            .inner
+            .read()
+            .map_err(|_| QuillError::Internal("vector store lock poisoned".into()))?;
+        Ok(g.entries
+            .iter()
+            .filter(|e| e.chunk.project_id == project_id)
+            .map(|e| e.chunk.clone())
+            .collect())
+    }
 }
 
 fn norm(v: &[f32]) -> f32 {

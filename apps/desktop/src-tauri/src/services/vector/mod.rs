@@ -35,4 +35,8 @@ pub trait VectorStore: Send + Sync {
 
     /// Diagnostic: how many chunks for a project.
     async fn count_for_project(&self, project_id: &str) -> Result<u64>;
+
+    /// Walk every chunk for a project. Used by cross-link queries that
+    /// need exact text matching rather than similarity search.
+    async fn chunks_for_project(&self, project_id: &str) -> Result<Vec<CanonChunk>>;
 }

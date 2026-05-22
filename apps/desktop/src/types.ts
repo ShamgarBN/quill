@@ -306,6 +306,135 @@ export interface QuillError {
   message: string;
 }
 
+// ---------- Second brain (Phase 7) ----------
+
+export type CharacterRole =
+  | "protagonist"
+  | "antagonist"
+  | "mentor"
+  | "ally"
+  | "love-interest"
+  | "family"
+  | "foil"
+  | "supporting"
+  | "minor";
+
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  aliases: string[];
+  role: CharacterRole;
+  motivation: string;
+  voice_notes: string;
+  secrets: string;
+  secrets_do_not_send: boolean;
+  arc_one_liner: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CharacterPatch {
+  name?: string;
+  aliases?: string[];
+  role?: CharacterRole;
+  motivation?: string;
+  voice_notes?: string;
+  secrets?: string;
+  secrets_do_not_send?: boolean;
+  arc_one_liner?: string;
+}
+
+export interface Idea {
+  id: string;
+  project_id: string;
+  text: string;
+  tags: string[];
+  do_not_send: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdeaPatch {
+  text?: string;
+  tags?: string[];
+  do_not_send?: boolean;
+}
+
+export type CrossLink =
+  | {
+      kind: "scene";
+      scene_id: string;
+      order: number;
+      title: string;
+      matched_term: string;
+      location: string;
+      snippet: string | null;
+    }
+  | {
+      kind: "canon";
+      chunk_id: string;
+      doc_id: string;
+      matched_term: string;
+      snippet: string;
+      headings: string[];
+    };
+
+export const CHARACTER_ROLE_LABELS: Record<CharacterRole, string> = {
+  protagonist: "Protagonist",
+  antagonist: "Antagonist",
+  mentor: "Mentor",
+  ally: "Ally",
+  "love-interest": "Love Interest",
+  family: "Family",
+  foil: "Foil",
+  supporting: "Supporting",
+  minor: "Minor",
+};
+
+// ---------- Drafting (Phase 6) ----------
+
+export type DraftOperation = "continue" | "rewrite" | "critique";
+
+export interface DraftRequest {
+  project_id: string;
+  scene_id: string;
+  operation: DraftOperation;
+  instruction: string;
+  selection: string | null;
+  top_k_canon: number | null;
+  max_voice_anchors: number | null;
+  override_drift_gate: boolean;
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface DraftPreview {
+  messages: ChatMessage[];
+  included: IncludedCategory[];
+  canon_chunk_count: number;
+  voice_anchor_count: number;
+  current_drift: number | null;
+  drift_blocks_send: boolean;
+  canon_chunks: ChunkRef[];
+  provider: string;
+  model: string;
+}
+
+export interface DraftSuggestion {
+  content: string;
+  provider: string;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  current_drift: number | null;
+  canon_chunks_used: ChunkRef[];
+  override_drift_gate: boolean;
+}
+
 /** Display metadata for the canonical 15 Save the Cat beats. */
 export const BEAT_META: Record<
   BeatId,

@@ -77,6 +77,17 @@ pub fn run() {
             commands::voice_fingerprint,
             commands::voice_extract,
             commands::voice_drift,
+            commands::drafting_preview,
+            commands::drafting_invoke,
+            commands::brain_characters_list,
+            commands::brain_character_create,
+            commands::brain_character_update,
+            commands::brain_character_delete,
+            commands::brain_character_cross_links,
+            commands::brain_ideas_list,
+            commands::brain_idea_create,
+            commands::brain_idea_update,
+            commands::brain_idea_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

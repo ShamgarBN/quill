@@ -8,22 +8,22 @@
 
 ## Status
 
-Currently at the end of **Phase 5 MVP**. The app boots, lets you create projects, ingest canon, manage a 15-beat sheet, pin reference passages for voice modeling, and draft scenes in a real editor with autosave, Git auto-commit, and a live voice-drift indicator. Cloud LLM credentials are stored and verified, but the chat-driven drafting loop itself lands in Phase 6.
+Currently at **v0.2.0**. The app boots, lets you create projects, ingest canon, manage a 15-beat sheet, pin reference passages for voice modeling, and draft scenes in a real editor with autosave, Git auto-commit, and a live voice-drift indicator. The AI drafting loop is wired end-to-end — a side-by-side panel in the Manuscript view assembles a context-bounded prompt (scene + beat + canon + voice anchors), enforces the voice-drift gate, calls your configured chat provider, and lets you accept the suggestion as an append or as a replacement for a selection. The Character Bible and Idea Park are live, with cross-link search across both manuscripts and canon.
 
 See [`docs/PRD.md`](docs/PRD.md) for the full plan and [`HANDOFF.md`](HANDOFF.md) for the deeper engineering migration guide.
 
-| Phase                          | Status                                              |
-| ------------------------------ | --------------------------------------------------- |
-| 0. Foundation                  | ✅ complete                                         |
-| 1. Canon ingestion             | ✅ complete                                         |
-| 2. LLM provider layer          | ✅ complete                                         |
-| 3. Structural engine           | ✅ complete                                         |
-| 4. Voice fingerprint           | ✅ complete                                         |
-| 5. Drafting modes (MVP)        | ✅ complete (basic editor + autosave + drift gauge) |
-| 6. Revision loop               | ⏳ pending                                          |
-| 7. Second brain                | ⏳ pending                                          |
-| 8. Distribution (signing)      | ⏳ pending — current builds are unsigned            |
-| 9. Local embeddings (optional) | ⏳ pending                                          |
+| Phase                                | Status                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| 0. Foundation                        | ✅ complete                                                                   |
+| 1. Canon ingestion                   | ✅ complete                                                                   |
+| 2. LLM provider layer                | ✅ complete                                                                   |
+| 3. Structural engine                 | ✅ complete                                                                   |
+| 4. Voice fingerprint                 | ✅ complete                                                                   |
+| 5. Drafting modes (MVP)              | ✅ complete (editor + autosave + drift gauge)                                 |
+| 6. Revision loop                     | ✅ complete (side-by-side draft panel + drift gate; inline track-changes next) |
+| 7. Second brain                      | ✅ complete (Character Bible + Idea Park + cross-links)                       |
+| 8. Distribution (signing/notarizing) | ⏳ pending — current builds are unsigned                                      |
+| 9. Local embeddings (optional)       | ⏳ pending                                                                    |
 
 ---
 
@@ -32,7 +32,7 @@ See [`docs/PRD.md`](docs/PRD.md) for the full plan and [`HANDOFF.md`](HANDOFF.md
 ### Option A — Use the prebuilt `.dmg` (recommended)
 
 1. Go to the [Releases page](https://github.com/ShamgarBN/writing-assistant/releases).
-2. Download `Quill_0.1.0-handoff_aarch64.dmg` (Apple Silicon only).
+2. Download `Quill_0.2.0_aarch64.dmg` (Apple Silicon only).
 3. Double-click the `.dmg`, drag **Quill.app** into your **Applications** folder.
 4. **First-launch Gatekeeper bypass.** Because the build isn't yet code-signed with a paid Apple Developer ID, macOS will refuse to open it on first run with a "cannot be opened because it is from an unidentified developer" dialog. To bypass:
    - Open **Finder → Applications**.
@@ -125,6 +125,35 @@ Open the **Manuscript** tab. Create a scene from the left rail, type into the ed
 - Mirrors the word count back to the beat sheet so progress bars stay accurate.
 - Creates a Git commit (best-effort — invisible on success, logged on failure).
 - Recomputes the voice-drift score against your fingerprint.
+
+### 7. Draft with AI (Phase 6)
+
+With a scene open, click **Draft** in the Manuscript header. A side panel appears with five operations:
+
+- **Continue** — generate the next paragraph(s) of the scene from where the cursor is.
+- **Rewrite** — rewrite the current selection in your voice.
+- **Tighten** — shorten the selection while preserving meaning.
+- **Expand** — add a sentence or two of texture to the selection.
+- **Critique** — return craft notes (no prose) for the selection.
+
+Each call assembles its prompt from:
+
+- the scene text already on disk (the orchestrator reads from disk, not the editor buffer, so what's saved is what's sent),
+- the linked beat (label + canonical description),
+- the top-K canon chunks ranked by cosine similarity (chunks tagged `do_not_send` are excluded automatically),
+- your top-N reference voice anchors (most-recently-pinned, weighted by length).
+
+Before you commit to the call, hit **Preview** to see exactly what categories of context will be sent and a token-budget estimate. The voice-drift gate runs against the candidate output: if the drift score is `> 0.7`, the suggestion is held back behind an explicit "Override and accept anyway" toggle and the top-three feature deltas are surfaced (e.g. "sentences are 2.3× longer than your voice"). Every call is recorded in `audit.jsonl` with operation, provider, model, included content categories, and token counts — never the content itself.
+
+Click **Append** to paste the candidate at the end of the scene, or **Replace** to swap the suggestion in for whatever you had selected. (Inline track-changes — green/red diff view with per-chunk accept / reject — is queued as the next priority. For now you can fall back to `git diff` between auto-commits.)
+
+### 8. Capture characters and ideas (Phase 7)
+
+The **Bible** tab is the Character Bible: one card per character with name, aliases, role (protagonist / antagonist / mentor / love-interest / supporting / minor), arc one-liner, motivation, voice notes, and a `secrets` field that is automatically tagged as `do_not_send` so it never crosses the network. Each character card shows cross-links — every scene and canon chunk that mentions the character by name or alias (case-insensitive substring match), so you can audit consistency across the whole project at a glance.
+
+The **Ideas** tab is the Idea Park: a tag-able capture buffer for fragments, beats, or "what if" thoughts you can't act on yet. Each card has its own `do_not_send` flag for spoiler-sensitive ideas. Filter by tag from the sidebar.
+
+Both stores live as plain JSON under `<project>/bible/characters.json` and `<project>/ideas/ideas.json` and are picked up by the Git auto-commit on save.
 
 ---
 
@@ -225,6 +254,10 @@ Everything is a plain file you can grep, diff, or open in any editor:
 │     ├─ canon/                    # ingested originals (kept for re-ingest)
 │     ├─ voice/
 │     │  └─ pins.json              # reference passages
+│     ├─ bible/
+│     │  └─ characters.json        # Character Bible (Phase 7)
+│     ├─ ideas/
+│     │  └─ ideas.json             # Idea Park (Phase 7)
 │     └─ .git/                     # auto-commit history
 ├─ vectors.json                    # embedded canon chunks (per-project keyed)
 ├─ secrets/                        # Argon2id+AES-GCM-encrypted API keys

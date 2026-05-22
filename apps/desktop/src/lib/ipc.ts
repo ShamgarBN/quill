@@ -13,10 +13,18 @@ import type {
   BeatPatch,
   BeatSheet,
   CanonKind,
+  Character,
+  CharacterPatch,
   ChunkRef,
   ChunkSensitivity,
   CommitInfo,
+  CrossLink,
+  DraftPreview,
+  DraftRequest,
+  DraftSuggestion,
   DriftReport,
+  Idea,
+  IdeaPatch,
   ImportPreview,
   IngestReport,
   Project,
@@ -233,6 +241,56 @@ export const voiceDrift = (
   topN = 8,
 ): Promise<DriftReport> =>
   invoke<DriftReport>("voice_drift", { projectId, candidate, topN });
+
+// ---------- Drafting (Phase 6) ----------
+
+export const draftingPreview = (req: DraftRequest): Promise<DraftPreview> =>
+  invoke<DraftPreview>("drafting_preview", { req });
+
+export const draftingInvoke = (req: DraftRequest): Promise<DraftSuggestion> =>
+  invoke<DraftSuggestion>("drafting_invoke", { req });
+
+// ---------- Second brain (Phase 7) ----------
+
+export const brainCharactersList = (projectId: string): Promise<Character[]> =>
+  invoke<Character[]>("brain_characters_list", { projectId });
+
+export const brainCharacterCreate = (
+  projectId: string,
+  name: string,
+): Promise<Character> =>
+  invoke<Character>("brain_character_create", { projectId, name });
+
+export const brainCharacterUpdate = (
+  projectId: string,
+  id: string,
+  patch: CharacterPatch,
+): Promise<Character> =>
+  invoke<Character>("brain_character_update", { projectId, id, patch });
+
+export const brainCharacterDelete = (projectId: string, id: string): Promise<void> =>
+  invoke<void>("brain_character_delete", { projectId, id });
+
+export const brainCharacterCrossLinks = (
+  projectId: string,
+  id: string,
+): Promise<CrossLink[]> =>
+  invoke<CrossLink[]>("brain_character_cross_links", { projectId, id });
+
+export const brainIdeasList = (projectId: string): Promise<Idea[]> =>
+  invoke<Idea[]>("brain_ideas_list", { projectId });
+
+export const brainIdeaCreate = (projectId: string, text: string): Promise<Idea> =>
+  invoke<Idea>("brain_idea_create", { projectId, text });
+
+export const brainIdeaUpdate = (
+  projectId: string,
+  id: string,
+  patch: IdeaPatch,
+): Promise<Idea> => invoke<Idea>("brain_idea_update", { projectId, id, patch });
+
+export const brainIdeaDelete = (projectId: string, id: string): Promise<void> =>
+  invoke<void>("brain_idea_delete", { projectId, id });
 
 // `Beat` is re-exported so consumers can import alongside ipc fns.
 export type { Beat };
