@@ -28,6 +28,7 @@ import type {
   ImportPreview,
   IngestReport,
   Project,
+  ProjectPatch,
   ProviderId,
   ProviderStatus,
   ReferencePin,
@@ -40,6 +41,7 @@ import type {
   ThemePreference,
   VoiceFeatures,
   VoiceFingerprint,
+  WatchStatus,
 } from "@/types";
 
 // ---------- Projects ----------
@@ -51,6 +53,9 @@ export const projectList = (): Promise<Project[]> => invoke<Project[]>("project_
 
 export const projectOpen = (id: string): Promise<Project> =>
   invoke<Project>("project_open", { id });
+
+export const projectUpdate = (id: string, patch: ProjectPatch): Promise<Project> =>
+  invoke<Project>("project_update", { id, patch });
 
 // ---------- Settings ----------
 
@@ -111,6 +116,23 @@ export const canonSearch = (params: {
 
 export const canonCount = (projectId: string): Promise<number> =>
   invoke<number>("canon_count", { projectId });
+
+// ---------- Vault watcher (Phase 5.x) ----------
+
+export const canonWatchStart = (
+  projectId: string,
+  vaultPath?: string,
+): Promise<WatchStatus> =>
+  invoke<WatchStatus>("canon_watch_start", {
+    projectId,
+    vaultPath: vaultPath ?? null,
+  });
+
+export const canonWatchStop = (projectId: string): Promise<WatchStatus | null> =>
+  invoke<WatchStatus | null>("canon_watch_stop", { projectId });
+
+export const canonWatchStatus = (projectId: string): Promise<WatchStatus | null> =>
+  invoke<WatchStatus | null>("canon_watch_status", { projectId });
 
 // ---------- LLM ----------
 

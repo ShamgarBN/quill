@@ -1,7 +1,7 @@
 //! Per-project filesystem layout and CRUD.
 
 use crate::error::{QuillError, Result};
-use crate::models::Project;
+use crate::models::{Project, ProjectPatch};
 use std::path::{Path, PathBuf};
 
 const PROJECTS_DIR: &str = "projects";
@@ -112,6 +112,14 @@ impl ProjectStore {
         }
         Ok(dir)
     }
+
+    /// Apply a partial update to a project's metadata and persist it.
+    pub fn update(&self, id: &str, patch: ProjectPatch) -> Result<Project> {
+        let mut project = self.open(id)?;
+        patch.apply(&mut project);
+        super::atomic::write_json(&self.project_file(id), &project)?;
+        Ok(project)
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +157,73 @@ mod tests {
             store.create("   "),
             Err(QuillError::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn fresh_project_has_no_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(dir.path());
+        let p = store.create("Eragon").unwrap();
+        assert!(p.vault_path.is_none());
+        assert!(!p.vault_auto_watch);
+    }
+
+    #[test]
+    fn update_sets_and_clears_vault_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(dir.path());
+        let p = store.create("Wingfeather").unwrap();
+        let id = p.id.clone();
+
+        // Set
+        let patch = ProjectPatch {
+            vault_path: Some(Some("/Users/me/vault".into())),
+            vault_auto_watch: Some(true),
+            ..Default::default()
+        };
+        let p2 = store.update(&id, patch).unwrap();
+        assert_eq!(p2.vault_path.as_deref(), Some("/Users/me/vault"));
+        assert!(p2.vault_auto_watch);
+
+        // Reload to ensure persisted
+        let p3 = store.open(&id).unwrap();
+        assert_eq!(p3.vault_path.as_deref(), Some("/Users/me/vault"));
+
+        // Clear with Some(None)
+        let patch = ProjectPatch {
+            vault_path: Some(None),
+            ..Default::default()
+        };
+        let p4 = store.update(&id, patch).unwrap();
+        assert!(p4.vault_path.is_none());
+    }
+
+    #[test]
+    fn old_project_json_without_vault_fields_loads() {
+        // Simulate a project.json written by an earlier version that didn't
+        // know about vault_path / vault_auto_watch.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ProjectStore::new(dir.path());
+        let id = "legacy-id";
+        let project_dir = dir.path().join(PROJECTS_DIR).join(id);
+        std::fs::create_dir_all(&project_dir).unwrap();
+        let legacy_json = serde_json::json!({
+            "id": id,
+            "name": "Legacy",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "manuscript_word_count": 0,
+            "beat_progress": 0,
+        });
+        std::fs::write(
+            project_dir.join(PROJECT_FILE),
+            serde_json::to_string(&legacy_json).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = store.open(id).unwrap();
+        assert_eq!(loaded.name, "Legacy");
+        assert!(loaded.vault_path.is_none());
+        assert!(!loaded.vault_auto_watch);
     }
 }

@@ -15,7 +15,7 @@ pub use brain::{Character, CharacterPatch, CharacterRole, CrossLink, Idea, IdeaP
 #[allow(unused_imports)]
 pub use canon::{CanonChunk, CanonDocument, CanonKind, ChunkRef, ChunkSensitivity};
 pub use commit::CommitInfo;
-pub use project::Project;
+pub use project::{Project, ProjectPatch};
 #[allow(unused_imports)]
 pub use settings::{FontPreference, GenerationMode, Settings, ThemePreference};
 #[allow(unused_imports)]

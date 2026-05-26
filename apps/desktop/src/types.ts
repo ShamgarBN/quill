@@ -38,6 +38,26 @@ export interface Project {
   updated_at: string;
   manuscript_word_count: number;
   beat_progress: number;
+  vault_path: string | null;
+  vault_auto_watch: boolean;
+}
+
+export interface ProjectPatch {
+  name?: string;
+  /** `null` to clear, `string` to set. Omit to leave unchanged. */
+  vault_path?: string | null;
+  vault_auto_watch?: boolean;
+}
+
+export interface WatchStatus {
+  project_id: string;
+  vault_path: string;
+  started_at: string;
+  events_received: number;
+  files_reingested: number;
+  last_event_at: string | null;
+  last_event_path: string | null;
+  last_error: string | null;
 }
 
 export interface Settings {

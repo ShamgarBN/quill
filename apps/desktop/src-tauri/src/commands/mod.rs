@@ -26,7 +26,7 @@ pub use voice::*;
 use crate::config;
 use crate::error::Result;
 use crate::models::settings::SettingsPatch;
-use crate::models::{CommitInfo, Project, Settings};
+use crate::models::{CommitInfo, Project, ProjectPatch, Settings};
 use crate::services::git::GitService;
 use crate::state::AppState;
 use serde::Serialize;
@@ -69,6 +69,15 @@ pub fn project_list(state: State<'_, AppState>) -> Result<Vec<Project>> {
 #[tauri::command]
 pub fn project_open(state: State<'_, AppState>, id: String) -> Result<Project> {
     state.projects.open(&id)
+}
+
+#[tauri::command]
+pub fn project_update(
+    state: State<'_, AppState>,
+    id: String,
+    patch: ProjectPatch,
+) -> Result<Project> {
+    state.projects.update(&id, patch)
 }
 
 // ---------- Settings ----------
