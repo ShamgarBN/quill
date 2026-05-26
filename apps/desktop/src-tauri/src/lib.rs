@@ -75,6 +75,7 @@ pub fn run() {
             commands::manuscript_load_scene,
             commands::manuscript_save_scene,
             commands::manuscript_compile,
+            commands::manuscript_today_progress,
             commands::voice_pins_list,
             commands::voice_pins_create,
             commands::voice_pins_delete,

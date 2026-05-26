@@ -41,6 +41,7 @@ import type {
   Settings,
   SettingsPatch,
   ThemePreference,
+  TodayProgress,
   VoiceFeatures,
   VoiceFingerprint,
   WatchStatus,
@@ -241,6 +242,9 @@ export const manuscriptCompile = (
     outputPath,
     options: options ?? null,
   });
+
+export const manuscriptTodayProgress = (projectId: string): Promise<TodayProgress> =>
+  invoke<TodayProgress>("manuscript_today_progress", { projectId });
 
 // ---------- Voice (reference pins, fingerprint, drift) ----------
 

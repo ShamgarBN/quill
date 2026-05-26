@@ -6,7 +6,9 @@
 use crate::error::{QuillError, Result};
 use crate::models::structure::Scene;
 use crate::services::git::GitService;
-use crate::services::manuscript::{CompileOptions, CompileReport, ManuscriptStore, SceneContent};
+use crate::services::manuscript::{
+    CompileOptions, CompileReport, ManuscriptStore, ProgressService, SceneContent, TodayProgress,
+};
 use crate::services::structure::StructureStore;
 use crate::state::AppState;
 use std::path::PathBuf;
@@ -94,4 +96,19 @@ pub fn manuscript_compile(
     let opts = options.unwrap_or_default();
     let path_buf = output_path.map(PathBuf::from);
     manuscript.compile(&project_id, &scenes, &opts, path_buf.as_deref())
+}
+
+/// Return today's writing progress for a project. First call of any given
+/// day baselines today's count at the current total, so subsequent calls
+/// can report a sensible delta.
+#[tauri::command]
+pub fn manuscript_today_progress(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<TodayProgress> {
+    let structure = StructureStore::new(&state.projects);
+    let scenes = structure.load_scenes(&project_id)?;
+    let total: u64 = scenes.iter().map(|s| s.word_count as u64).sum();
+    let svc = ProgressService::new(&state.projects);
+    svc.today(&project_id, total)
 }

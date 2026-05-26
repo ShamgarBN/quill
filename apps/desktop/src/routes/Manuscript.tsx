@@ -35,7 +35,14 @@ import {
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
-import type { DraftOperation, DriftReport, Scene, SceneContent } from "@/types";
+import type {
+  BeatSheet,
+  DraftOperation,
+  DriftReport,
+  Scene,
+  SceneContent,
+  TodayProgress,
+} from "@/types";
 import { cn } from "@/lib/cn";
 import { DraftingPanel } from "@/routes/DraftingPanel";
 import { DiffReviewPane } from "@/components/editor/DiffReviewPane";
@@ -85,6 +92,10 @@ export function ManuscriptView(): JSX.Element {
     message: string;
   } | null>(null);
   const [compiling, setCompiling] = useState(false);
+  /** Cached beat sheet so the rail header can show "X of N target words". */
+  const [beatSheet, setBeatSheet] = useState<BeatSheet | null>(null);
+  /** Today's writing progress; refreshes after each successful save. */
+  const [todayProgress, setTodayProgress] = useState<TodayProgress | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const selectionText =
     selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
@@ -108,6 +119,41 @@ export function ManuscriptView(): JSX.Element {
   useEffect(() => {
     void refreshScenes();
   }, [refreshScenes]);
+
+  // Load the beat sheet once per project so the rail can show target progress.
+  useEffect(() => {
+    if (!project) {
+      setBeatSheet(null);
+      return;
+    }
+    let cancelled = false;
+    void ipc
+      .structureBeatSheetGet(project.id)
+      .then((bs) => {
+        if (!cancelled) setBeatSheet(bs);
+      })
+      .catch(() => {
+        // Non-fatal — progress card just won't show a target.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
+
+  // Refresh today's writing progress: once on project load, then after
+  // every successful save so the "+N today" badge stays current.
+  const refreshTodayProgress = useCallback(async (): Promise<void> => {
+    if (!project) return;
+    try {
+      const p = await ipc.manuscriptTodayProgress(project.id);
+      setTodayProgress(p);
+    } catch {
+      // Non-fatal — badge just won't update.
+    }
+  }, [project]);
+  useEffect(() => {
+    void refreshTodayProgress();
+  }, [refreshTodayProgress]);
 
   // Probe whether a voice fingerprint exists; if not, skip the drift gauge.
   useEffect(() => {
@@ -163,6 +209,7 @@ export function ManuscriptView(): JSX.Element {
           const updated = await ipc.manuscriptSaveScene(project.id, activeId, text);
           setContent(updated);
           setSave({ kind: "saved", at: Date.now() });
+          void refreshTodayProgress();
         } catch (e) {
           setSave({ kind: "error", message: messageOf(e) });
         }
@@ -171,7 +218,7 @@ export function ManuscriptView(): JSX.Element {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [text, content, project, activeId]);
+  }, [text, content, project, activeId, refreshTodayProgress]);
 
   // Re-check drift after a successful save (cheap-ish) when there's a
   // fingerprint and enough material to make the score meaningful.
@@ -226,6 +273,31 @@ export function ManuscriptView(): JSX.Element {
       setError(messageOf(e));
     }
   };
+
+  const onReorderScenes = useCallback(
+    async (idsInOrder: string[]) => {
+      if (!project) return;
+      // Optimistic update so the rail doesn't flicker.
+      setScenes((curr) => {
+        const map = new Map(curr.map((s) => [s.id, s]));
+        return idsInOrder
+          .map((id, idx) => {
+            const s = map.get(id);
+            return s ? { ...s, order: idx } : null;
+          })
+          .filter((s): s is Scene => s !== null);
+      });
+      try {
+        await ipc.structureSceneReorder(project.id, idsInOrder);
+        await refreshScenes();
+      } catch (e) {
+        setError(messageOf(e));
+        // Revert by re-pulling from disk.
+        await refreshScenes();
+      }
+    },
+    [project, refreshScenes],
+  );
 
   // Enter track-changes review mode for an AI suggestion. The full
   // candidate scene text is composed here from the operation:
@@ -346,6 +418,7 @@ export function ManuscriptView(): JSX.Element {
                 Draft
               </button>
             )}
+            <TodaysWordsBadge progress={todayProgress} />
             <SaveIndicator state={save} />
           </div>
         }
@@ -377,6 +450,8 @@ export function ManuscriptView(): JSX.Element {
           onPick={setActiveId}
           onCreate={onCreateScene}
           onDelete={onDeleteScene}
+          onReorder={onReorderScenes}
+          beatSheet={beatSheet}
         />
 
         <div className="flex flex-1 flex-col">
@@ -441,15 +516,69 @@ function SceneRail({
   onPick,
   onCreate,
   onDelete,
+  onReorder,
+  beatSheet,
 }: {
   scenes: Scene[];
   activeId: string | null;
   onPick: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
+  onReorder: (idsInOrder: string[]) => void;
+  beatSheet: BeatSheet | null;
 }): JSX.Element {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  const onDragStart =
+    (id: string) =>
+    (e: React.DragEvent): void => {
+      setDragId(id);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", id);
+    };
+  const onDragOver =
+    (id: string) =>
+    (e: React.DragEvent): void => {
+      if (!dragId || dragId === id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setOverId(id);
+    };
+  const onDrop =
+    (targetId: string) =>
+    (e: React.DragEvent): void => {
+      e.preventDefault();
+      if (!dragId || dragId === targetId) {
+        setDragId(null);
+        setOverId(null);
+        return;
+      }
+      // Compute the new order: remove dragId from its current slot, then
+      // insert it immediately before targetId.
+      const ids = scenes.map((s) => s.id);
+      const from = ids.indexOf(dragId);
+      const to = ids.indexOf(targetId);
+      if (from < 0 || to < 0) {
+        setDragId(null);
+        setOverId(null);
+        return;
+      }
+      ids.splice(from, 1);
+      const insertAt = from < to ? to - 1 : to;
+      ids.splice(insertAt, 0, dragId);
+      setDragId(null);
+      setOverId(null);
+      onReorder(ids);
+    };
+  const onDragEnd = (): void => {
+    setDragId(null);
+    setOverId(null);
+  };
+
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-line-subtle bg-surface-subtle">
+      <ProgressCard scenes={scenes} beatSheet={beatSheet} />
       <div className="flex items-center justify-between border-b border-line-subtle px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
         <span>Scenes ({scenes.length})</span>
         <button
@@ -474,6 +603,12 @@ function SceneRail({
               active={s.id === activeId}
               onPick={() => onPick(s.id)}
               onDelete={() => onDelete(s.id)}
+              isDragging={dragId === s.id}
+              isDropTarget={overId === s.id && dragId !== null && dragId !== s.id}
+              onDragStart={onDragStart(s.id)}
+              onDragOver={onDragOver(s.id)}
+              onDrop={onDrop(s.id)}
+              onDragEnd={onDragEnd}
             />
           ))
         )}
@@ -482,24 +617,95 @@ function SceneRail({
   );
 }
 
+function ProgressCard({
+  scenes,
+  beatSheet,
+}: {
+  scenes: Scene[];
+  beatSheet: BeatSheet | null;
+}): JSX.Element | null {
+  if (scenes.length === 0 && !beatSheet) return null;
+  const totalWords = scenes.reduce((acc, s) => acc + s.word_count, 0);
+  const target = beatSheet?.target_word_count ?? 0;
+  const pct = target > 0 ? Math.min(100, Math.round((totalWords / target) * 100)) : 0;
+  // Count distinct beat IDs assigned to scenes (scenes can share beats).
+  const assigned = new Set(
+    scenes
+      .map((s) => s.beat_id)
+      .filter((id): id is NonNullable<typeof id> => id !== null),
+  );
+  const beatsCovered = assigned.size;
+  const beatsTotal = beatSheet?.beats.length ?? 15;
+
+  return (
+    <div className="border-b border-line-subtle px-3 py-2.5">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-semibold text-ink">
+          {totalWords.toLocaleString()}
+          {target > 0 && (
+            <span className="font-normal text-ink-faint">
+              {" "}
+              / {target.toLocaleString()}
+            </span>
+          )}
+        </span>
+        <span className="text-ink-faint">{target > 0 ? `${pct}%` : "words"}</span>
+      </div>
+      {target > 0 && (
+        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-line-subtle">
+          <div
+            className={cn(
+              "h-full transition-all",
+              pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-sky-500",
+            )}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <div className="mt-1.5 text-[10px] uppercase tracking-wide text-ink-faint">
+        {beatsCovered}/{beatsTotal} beats touched
+      </div>
+    </div>
+  );
+}
+
 function SceneRow({
   scene,
   active,
   onPick,
   onDelete,
+  isDragging,
+  isDropTarget,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   scene: Scene;
   active: boolean;
   onPick: () => void;
   onDelete: () => void;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
 }): JSX.Element {
   return (
     <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       className={cn(
-        "group flex items-center gap-2 px-3 py-1.5 text-sm",
+        "group flex cursor-grab items-center gap-2 border-t-2 border-transparent px-3 py-1.5 text-sm",
         active
           ? "bg-amber-50 text-ink dark:bg-amber-950/30"
           : "hover:bg-surface-elevated",
+        isDragging && "opacity-40",
+        isDropTarget && "border-t-accent",
       )}
     >
       <button
@@ -634,6 +840,32 @@ function DriftIndicator({
     >
       <Icon className="h-3.5 w-3.5" />
       Voice: {label} ({(score * 100).toFixed(0)})
+    </span>
+  );
+}
+
+function TodaysWordsBadge({
+  progress,
+}: {
+  progress: TodayProgress | null;
+}): JSX.Element | null {
+  if (!progress || progress.delta === 0) return null;
+  const sign = progress.delta > 0 ? "+" : "";
+  const tone =
+    progress.delta > 0
+      ? "text-emerald-700 dark:text-emerald-300"
+      : "text-rose-700 dark:text-rose-300";
+  const yesterday =
+    progress.previous_delta !== null && progress.previous_delta !== 0
+      ? `Yesterday: ${progress.previous_delta > 0 ? "+" : ""}${progress.previous_delta.toLocaleString()}`
+      : undefined;
+  return (
+    <span
+      className={cn("text-xs tabular-nums", tone)}
+      title={yesterday ?? "Words written today"}
+    >
+      {sign}
+      {progress.delta.toLocaleString()} today
     </span>
   );
 }
