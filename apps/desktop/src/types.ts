@@ -249,6 +249,19 @@ export interface SceneContent {
   char_count: number;
 }
 
+export interface CompileOptions {
+  include_scene_titles?: boolean;
+  include_empty_scenes?: boolean;
+  separator?: string;
+}
+
+export interface CompileReport {
+  markdown: string;
+  word_count: number;
+  scene_count: number;
+  output_path: string | null;
+}
+
 // ---------- Voice (Phase 4) ----------
 
 export interface ReferencePin {

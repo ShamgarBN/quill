@@ -171,6 +171,88 @@ impl<'a> ManuscriptStore<'a> {
         }
         Ok(())
     }
+
+    /// Concatenate every scene in narrative order into one Markdown stream
+    /// and (optionally) write it to disk.
+    ///
+    /// `scenes` must already be in the order the user wants — the caller
+    /// is responsible for that (typically `StructureStore::load_scenes`).
+    /// The returned `CompileReport` carries the full text, the word count,
+    /// and the scene count. If `output_path` is `Some`, the text is also
+    /// written atomically to that path.
+    pub fn compile(
+        &self,
+        project_id: &str,
+        scenes: &[crate::models::structure::Scene],
+        options: &CompileOptions,
+        output_path: Option<&std::path::Path>,
+    ) -> Result<CompileReport> {
+        let mut out = String::new();
+        let mut emitted = 0u32;
+        for scene in scenes {
+            let content = self.load_scene(project_id, &scene.id, scene.order)?;
+            let trimmed = content.text.trim();
+            if trimmed.is_empty() && !options.include_empty_scenes {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(&options.separator);
+            }
+            if options.include_scene_titles {
+                out.push_str("## ");
+                out.push_str(&scene.title);
+                out.push_str("\n\n");
+            }
+            out.push_str(trimmed);
+            emitted += 1;
+        }
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        let word_count = count_words(&out);
+        if let Some(path) = output_path {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            storage::atomic_write_bytes(path, out.as_bytes())?;
+        }
+        Ok(CompileReport {
+            markdown: out,
+            word_count,
+            scene_count: emitted,
+            output_path: output_path.map(|p| p.to_string_lossy().to_string()),
+        })
+    }
+}
+
+/// Options for `ManuscriptStore::compile`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompileOptions {
+    /// Render each scene's title as a `## ...` H2 above its prose.
+    pub include_scene_titles: bool,
+    /// If false (default), scenes whose prose is empty are skipped.
+    pub include_empty_scenes: bool,
+    /// What to insert between consecutive scenes. Default `\n\n`.
+    pub separator: String,
+}
+
+impl Default for CompileOptions {
+    fn default() -> Self {
+        Self {
+            include_scene_titles: false,
+            include_empty_scenes: false,
+            separator: "\n\n".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CompileReport {
+    pub markdown: String,
+    pub word_count: u32,
+    pub scene_count: u32,
+    pub output_path: Option<String>,
 }
 
 fn scene_id_is_safe(id: &str) -> bool {
@@ -249,5 +331,124 @@ mod tests {
         store.delete_scene(&pid, "scn_aaaa").unwrap();
         let c = store.load_scene(&pid, "scn_aaaa", 0).unwrap();
         assert_eq!(c.text, "");
+    }
+
+    fn scene(order: u32, id: &str, title: &str) -> crate::models::structure::Scene {
+        use chrono::Utc;
+        crate::models::structure::Scene {
+            id: id.to_string(),
+            project_id: "p".into(),
+            order,
+            title: title.into(),
+            pov: None,
+            setting: None,
+            status: crate::models::structure::SceneStatus::Drafting,
+            word_count: 0,
+            beat_id: None,
+            inciting_incident: String::new(),
+            progressive_complication: String::new(),
+            crisis: String::new(),
+            climax: String::new(),
+            resolution: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn compile_joins_scenes_in_order() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store
+            .save_scene(&pid, "scn_a", 0, "First scene prose.")
+            .unwrap();
+        store
+            .save_scene(&pid, "scn_b", 1, "Second scene prose.")
+            .unwrap();
+        store
+            .save_scene(&pid, "scn_c", 2, "Third scene prose.")
+            .unwrap();
+
+        let scenes = vec![
+            scene(0, "scn_a", "Opening"),
+            scene(1, "scn_b", "Middle"),
+            scene(2, "scn_c", "End"),
+        ];
+        let report = store
+            .compile(&pid, &scenes, &CompileOptions::default(), None)
+            .unwrap();
+        assert_eq!(report.scene_count, 3);
+        assert_eq!(
+            report.markdown,
+            "First scene prose.\n\nSecond scene prose.\n\nThird scene prose.\n"
+        );
+        assert_eq!(report.word_count, 9);
+    }
+
+    #[test]
+    fn compile_skips_empty_scenes_by_default() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store.save_scene(&pid, "scn_a", 0, "Real prose.").unwrap();
+        // scn_b is never saved → empty.
+        store.save_scene(&pid, "scn_c", 2, "More prose.").unwrap();
+
+        let scenes = vec![
+            scene(0, "scn_a", "A"),
+            scene(1, "scn_b", "B"),
+            scene(2, "scn_c", "C"),
+        ];
+        let report = store
+            .compile(&pid, &scenes, &CompileOptions::default(), None)
+            .unwrap();
+        assert_eq!(report.scene_count, 2);
+        assert_eq!(report.markdown, "Real prose.\n\nMore prose.\n");
+    }
+
+    #[test]
+    fn compile_with_titles_emits_h2_headings() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store.save_scene(&pid, "scn_a", 0, "Body one.").unwrap();
+        store.save_scene(&pid, "scn_b", 1, "Body two.").unwrap();
+        let scenes = vec![
+            scene(0, "scn_a", "The Beginning"),
+            scene(1, "scn_b", "The Middle"),
+        ];
+        let report = store
+            .compile(
+                &pid,
+                &scenes,
+                &CompileOptions {
+                    include_scene_titles: true,
+                    ..CompileOptions::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert!(report.markdown.contains("## The Beginning\n\nBody one."));
+        assert!(report.markdown.contains("## The Middle\n\nBody two."));
+    }
+
+    #[test]
+    fn compile_writes_to_disk_when_path_supplied() {
+        let (d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store.save_scene(&pid, "scn_a", 0, "Only scene.").unwrap();
+        let out = d.path().join("compiled.md");
+        let report = store
+            .compile(
+                &pid,
+                &[scene(0, "scn_a", "Only")],
+                &CompileOptions::default(),
+                Some(&out),
+            )
+            .unwrap();
+        assert_eq!(
+            report.output_path.as_deref(),
+            Some(out.to_string_lossy().as_ref())
+        );
+        let on_disk = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(on_disk, "Only scene.\n");
     }
 }
