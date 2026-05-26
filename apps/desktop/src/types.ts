@@ -262,6 +262,14 @@ export interface CompileReport {
   output_path: string | null;
 }
 
+export interface TodayProgress {
+  date: string;
+  current_total: number;
+  baseline: number;
+  delta: number;
+  previous_delta: number | null;
+}
+
 // ---------- Voice (Phase 4) ----------
 
 export interface ReferencePin {

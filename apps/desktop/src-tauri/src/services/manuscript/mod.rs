@@ -15,6 +15,8 @@
 //! Discipline: this module owns the content; `services::structure::store`
 //! owns the metadata. Both are joined at the command-handler layer.
 
+mod progress;
 mod store;
 
+pub use progress::{ProgressService, TodayProgress};
 pub use store::{CompileOptions, CompileReport, ManuscriptStore, SceneContent};
