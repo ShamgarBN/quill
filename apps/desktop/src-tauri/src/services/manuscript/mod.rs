@@ -17,4 +17,4 @@
 
 mod store;
 
-pub use store::{ManuscriptStore, SceneContent};
+pub use store::{CompileOptions, CompileReport, ManuscriptStore, SceneContent};

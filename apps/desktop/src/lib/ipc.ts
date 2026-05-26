@@ -18,6 +18,8 @@ import type {
   ChunkRef,
   ChunkSensitivity,
   CommitInfo,
+  CompileOptions,
+  CompileReport,
   CrossLink,
   DraftPreview,
   DraftRequest,
@@ -228,6 +230,17 @@ export const manuscriptSaveScene = (
   text: string,
 ): Promise<SceneContent> =>
   invoke<SceneContent>("manuscript_save_scene", { projectId, sceneId, text });
+
+export const manuscriptCompile = (
+  projectId: string,
+  outputPath: string | null,
+  options?: CompileOptions,
+): Promise<CompileReport> =>
+  invoke<CompileReport>("manuscript_compile", {
+    projectId,
+    outputPath,
+    options: options ?? null,
+  });
 
 // ---------- Voice (reference pins, fingerprint, drift) ----------
 

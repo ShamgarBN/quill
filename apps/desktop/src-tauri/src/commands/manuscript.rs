@@ -6,9 +6,10 @@
 use crate::error::{QuillError, Result};
 use crate::models::structure::Scene;
 use crate::services::git::GitService;
-use crate::services::manuscript::{ManuscriptStore, SceneContent};
+use crate::services::manuscript::{CompileOptions, CompileReport, ManuscriptStore, SceneContent};
 use crate::services::structure::StructureStore;
 use crate::state::AppState;
+use std::path::PathBuf;
 use tauri::State;
 
 /// Load a scene's prose. Resolves the scene's current order from the
@@ -74,4 +75,23 @@ fn find_scene(state: &AppState, project_id: &str, scene_id: &str) -> Result<Scen
         .into_iter()
         .find(|s| s.id == scene_id)
         .ok_or_else(|| QuillError::NotFound(format!("scene {scene_id}")))
+}
+
+/// Compile every scene's prose, in narrative order, into one Markdown
+/// stream. If `output_path` is supplied, the compiled text is also
+/// written to that file (atomically — partial writes won't corrupt
+/// existing content).
+#[tauri::command]
+pub fn manuscript_compile(
+    state: State<'_, AppState>,
+    project_id: String,
+    output_path: Option<String>,
+    options: Option<CompileOptions>,
+) -> Result<CompileReport> {
+    let structure = StructureStore::new(&state.projects);
+    let scenes = structure.load_scenes(&project_id)?;
+    let manuscript = ManuscriptStore::new(&state.projects);
+    let opts = options.unwrap_or_default();
+    let path_buf = output_path.map(PathBuf::from);
+    manuscript.compile(&project_id, &scenes, &opts, path_buf.as_deref())
 }

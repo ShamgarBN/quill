@@ -22,10 +22,12 @@
  * Those land in 5.x once the editor's data flow is solid.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   CheckCircle2,
   CircleSlash,
+  Download,
   Loader2,
   Plus,
   Sparkles,
@@ -37,6 +39,7 @@ import type { DraftOperation, DriftReport, Scene, SceneContent } from "@/types";
 import { cn } from "@/lib/cn";
 import { DraftingPanel } from "@/routes/DraftingPanel";
 import { DiffReviewPane } from "@/components/editor/DiffReviewPane";
+import { SceneMetaStrip } from "@/components/editor/SceneMetaStrip";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 /** Don't even ask the backend for a drift score below this many words. */
@@ -76,6 +79,12 @@ export function ManuscriptView(): JSX.Element {
     original: string;
     candidate: string;
   } | null>(null);
+  /** Last-compile status: shown briefly under the header after Compile fires. */
+  const [compileStatus, setCompileStatus] = useState<{
+    kind: "ok" | "error";
+    message: string;
+  } | null>(null);
+  const [compiling, setCompiling] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const selectionText =
     selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
@@ -262,6 +271,38 @@ export function ManuscriptView(): JSX.Element {
     setReviewMode(null);
   }, []);
 
+  const onCompile = useCallback(async (): Promise<void> => {
+    if (!project) return;
+    setCompileStatus(null);
+    try {
+      const defaultName = `${project.name.replace(/[^a-zA-Z0-9 _-]+/g, "_").trim() || "manuscript"}.md`;
+      const path = await saveDialog({
+        defaultPath: defaultName,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (typeof path !== "string") return;
+      setCompiling(true);
+      const report = await ipc.manuscriptCompile(project.id, path);
+      setCompileStatus({
+        kind: "ok",
+        message: `Compiled ${report.scene_count} scene${
+          report.scene_count === 1 ? "" : "s"
+        } · ${report.word_count.toLocaleString()} words → ${path}`,
+      });
+    } catch (e) {
+      setCompileStatus({ kind: "error", message: messageOf(e) });
+    } finally {
+      setCompiling(false);
+    }
+  }, [project]);
+
+  // Auto-clear the compile status after 6 seconds.
+  useEffect(() => {
+    if (!compileStatus) return;
+    const t = window.setTimeout(() => setCompileStatus(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [compileStatus]);
+
   if (!project) {
     return (
       <div className="flex h-full flex-col">
@@ -280,6 +321,20 @@ export function ManuscriptView(): JSX.Element {
         subtitle={project.name}
         right={
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void onCompile()}
+              disabled={compiling || scenes.length === 0}
+              className="qbtn-ghost inline-flex h-7 items-center gap-1.5 px-2.5 text-xs disabled:opacity-50"
+              title="Compile every scene in order into a single Markdown file"
+            >
+              {compiling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              Compile
+            </button>
             {activeId && !draftingOpen && (
               <button
                 type="button"
@@ -295,6 +350,19 @@ export function ManuscriptView(): JSX.Element {
           </div>
         }
       />
+
+      {compileStatus && (
+        <div
+          className={cn(
+            "border-b px-5 py-2 text-xs",
+            compileStatus.kind === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-200",
+          )}
+        >
+          {compileStatus.message}
+        </div>
+      )}
 
       {error && (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
@@ -322,16 +390,33 @@ export function ManuscriptView(): JSX.Element {
               onCancel={onCancelReview}
             />
           ) : (
-            <Editor
-              editorRef={editorRef}
-              text={text}
-              onChange={setText}
-              onSelectionChange={(s, e) => setSelection({ start: s, end: e })}
-              wordCount={content?.word_count ?? 0}
-              charCount={content?.char_count ?? 0}
-              hasFingerprint={hasFingerprint}
-              drift={drift}
-            />
+            <>
+              {(() => {
+                const activeScene = scenes.find((s) => s.id === activeId);
+                if (!activeScene || !project) return null;
+                return (
+                  <SceneMetaStrip
+                    projectId={project.id}
+                    scene={activeScene}
+                    onSceneUpdated={(updated) =>
+                      setScenes((curr) =>
+                        curr.map((s) => (s.id === updated.id ? updated : s)),
+                      )
+                    }
+                  />
+                );
+              })()}
+              <Editor
+                editorRef={editorRef}
+                text={text}
+                onChange={setText}
+                onSelectionChange={(s, e) => setSelection({ start: s, end: e })}
+                wordCount={content?.word_count ?? 0}
+                charCount={content?.char_count ?? 0}
+                hasFingerprint={hasFingerprint}
+                drift={drift}
+              />
+            </>
           )}
         </div>
 
