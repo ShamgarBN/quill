@@ -33,9 +33,10 @@ import {
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
-import type { DriftReport, Scene, SceneContent } from "@/types";
+import type { DraftOperation, DriftReport, Scene, SceneContent } from "@/types";
 import { cn } from "@/lib/cn";
 import { DraftingPanel } from "@/routes/DraftingPanel";
+import { DiffReviewPane } from "@/components/editor/DiffReviewPane";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 /** Don't even ask the backend for a drift score below this many words. */
@@ -67,6 +68,14 @@ export function ManuscriptView(): JSX.Element {
     start: 0,
     end: 0,
   });
+  /** When non-null, the editor is in track-changes review mode and the
+   *  textarea is hidden; the user is reviewing an AI suggestion against
+   *  the current scene text. `original` is the scene text at the moment
+   *  review began; `candidate` is the full proposed scene text. */
+  const [reviewMode, setReviewMode] = useState<{
+    original: string;
+    candidate: string;
+  } | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const selectionText =
     selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
@@ -209,32 +218,49 @@ export function ManuscriptView(): JSX.Element {
     }
   };
 
-  // Apply an AI suggestion at the current cursor / selection.
+  // Enter track-changes review mode for an AI suggestion. The full
+  // candidate scene text is composed here from the operation:
+  //  - continue: append the suggestion to the end of the scene
+  //  - rewrite: splice the suggestion in where the user's selection was
+  // The user then reviews sentence-by-sentence in DiffReviewPane and
+  // their accepted text becomes the new scene content on Apply.
   // Hooks must be declared before any early return so React can keep a
   // stable hook order across renders (rules-of-hooks).
-  const onAppendToScene = useCallback(
-    (extra: string): void => {
-      const trimmed = extra.trim();
+  const onReviewChanges = useCallback(
+    (suggestion: string, operation: DraftOperation): void => {
+      const trimmed = suggestion.trim();
       if (!trimmed) return;
-      setText((curr) => {
-        const sep = curr.length > 0 && !curr.endsWith("\n\n") ? "\n\n" : "";
-        return `${curr}${sep}${trimmed}\n`;
-      });
+      let candidate: string;
+      if (operation === "continue") {
+        const sep = text.length > 0 && !text.endsWith("\n\n") ? "\n\n" : "";
+        candidate = `${text}${sep}${trimmed}\n`;
+      } else if (operation === "rewrite") {
+        const start = Math.min(selection.start, text.length);
+        const end = Math.min(selection.end, text.length);
+        if (end <= start) {
+          // No selection — degrade to append rather than no-op.
+          const sep = text.length > 0 && !text.endsWith("\n\n") ? "\n\n" : "";
+          candidate = `${text}${sep}${trimmed}\n`;
+        } else {
+          candidate = text.slice(0, start) + trimmed + text.slice(end);
+        }
+      } else {
+        // critique returns commentary, not prose to splice in.
+        return;
+      }
+      setReviewMode({ original: text, candidate });
     },
-    [setText],
+    [text, selection],
   );
-  const onReplaceSelection = useCallback(
-    (replacement: string): void => {
-      const trimmed = replacement;
-      setText((curr) => {
-        const start = Math.min(selection.start, curr.length);
-        const end = Math.min(selection.end, curr.length);
-        if (end <= start) return curr;
-        return curr.slice(0, start) + trimmed + curr.slice(end);
-      });
-    },
-    [selection, setText],
-  );
+
+  const onApplyReview = useCallback((finalText: string): void => {
+    setText(finalText);
+    setReviewMode(null);
+  }, []);
+
+  const onCancelReview = useCallback((): void => {
+    setReviewMode(null);
+  }, []);
 
   if (!project) {
     return (
@@ -288,6 +314,13 @@ export function ManuscriptView(): JSX.Element {
         <div className="flex flex-1 flex-col">
           {!activeId ? (
             <EmptyState onCreate={onCreateScene} />
+          ) : reviewMode ? (
+            <DiffReviewPane
+              original={reviewMode.original}
+              candidate={reviewMode.candidate}
+              onApply={onApplyReview}
+              onCancel={onCancelReview}
+            />
           ) : (
             <Editor
               editorRef={editorRef}
@@ -302,12 +335,11 @@ export function ManuscriptView(): JSX.Element {
           )}
         </div>
 
-        {draftingOpen && activeId && (
+        {draftingOpen && activeId && !reviewMode && (
           <DraftingPanel
             sceneId={activeId}
             selection={selectionText}
-            onAppendToScene={onAppendToScene}
-            onReplaceSelection={onReplaceSelection}
+            onReviewChanges={onReviewChanges}
             onClose={() => setDraftingOpen(false)}
           />
         )}

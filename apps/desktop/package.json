@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src --max-warnings=0",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -41,7 +43,8 @@
     "prettier": "^3.3.3",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=20"

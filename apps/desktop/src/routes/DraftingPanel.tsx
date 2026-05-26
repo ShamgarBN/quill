@@ -74,9 +74,9 @@ interface Props {
   selection: string;
   /** Active scene id; null disables the panel. */
   sceneId: string | null;
-  /** Callbacks the parent uses to apply the AI's output. */
-  onAppendToScene: (text: string) => void;
-  onReplaceSelection: (text: string) => void;
+  /** Hand the suggestion off to the editor, which composes the candidate
+   *  full-scene text and switches into the inline diff review UI. */
+  onReviewChanges: (suggestion: string, operation: DraftOperation) => void;
   /** Close the panel entirely. */
   onClose: () => void;
 }
@@ -92,8 +92,7 @@ type SendState =
 export function DraftingPanel({
   selection,
   sceneId,
-  onAppendToScene,
-  onReplaceSelection,
+  onReviewChanges,
   onClose,
 }: Props): JSX.Element {
   const project = useApp((s) => s.currentProject);
@@ -185,12 +184,10 @@ export function DraftingPanel({
 
   const onAccept = (): void => {
     if (send.kind !== "result") return;
-    if (operation === "continue") {
-      onAppendToScene(send.suggestion.content);
-    } else if (operation === "rewrite") {
-      onReplaceSelection(send.suggestion.content);
-    }
-    // Critique has nothing to insert; user reads it inline.
+    // Critique returns prose-style commentary, not a replacement — the user
+    // reads it in the panel and integrates by hand.
+    if (operation === "critique") return;
+    onReviewChanges(send.suggestion.content, operation);
     setSend({ kind: "idle" });
   };
 
@@ -473,11 +470,7 @@ function ResultBlock({
   onRetry: () => void;
 }): JSX.Element {
   const acceptLabel =
-    operation === "continue"
-      ? "Append to scene"
-      : operation === "rewrite"
-        ? "Replace selection"
-        : null;
+    operation === "continue" || operation === "rewrite" ? "Review changes" : null;
   return (
     <section className="border-b border-line-subtle bg-surface px-4 py-3">
       <div className="mb-2 flex items-center justify-between">
