@@ -7,12 +7,15 @@
  *
  * IMPORTANT: this view assumes a project is open. Sidebar guards that.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
   FileText,
+  FolderOpen,
   Loader2,
   Search,
   ShieldOff,
@@ -20,7 +23,13 @@ import {
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
-import type { CanonKind, ChunkRef, ChunkSensitivity, IngestReport } from "@/types";
+import type {
+  CanonKind,
+  ChunkRef,
+  ChunkSensitivity,
+  IngestReport,
+  WatchStatus,
+} from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { cn } from "@/lib/cn";
 
@@ -151,6 +160,17 @@ export function CanonView(): JSX.Element {
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
         {usingMock && <MockEmbeddingsBanner />}
         {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+        <section>
+          <SectionTitle>Obsidian vault</SectionTitle>
+          <p className="mt-1 max-w-prose text-xs text-ink-faint">
+            Point Quill at an Obsidian (or any) directory. When watching is on, files
+            you save in that directory are re-ingested automatically. New files are
+            picked up too; deletions are ignored (Obsidian saves atomically by writing a
+            temp file, so you'd lose data if we acted on Removed events).
+          </p>
+          <VaultWatcherCard projectId={project.id} />
+        </section>
 
         <section>
           <SectionTitle>New ingest defaults</SectionTitle>
@@ -365,6 +385,212 @@ function ReportRow({ report }: { report: IngestReport }): JSX.Element {
       </div>
     </div>
   );
+}
+
+function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
+  const currentProject = useApp((s) => s.currentProject);
+  const updateCurrentProject = useApp((s) => s.updateCurrentProject);
+  const vaultPath = currentProject?.vault_path ?? null;
+
+  const [status, setStatus] = useState<WatchStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await ipc.canonWatchStatus(projectId);
+      setStatus(s);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [projectId]);
+
+  // Poll for status while watching is active. 1.5s feels live without
+  // hammering the IPC channel.
+  useEffect(() => {
+    void refresh();
+    if (status) {
+      pollRef.current = window.setInterval(() => {
+        void refresh();
+      }, 1500);
+      return () => {
+        if (pollRef.current !== null) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      };
+    }
+    return undefined;
+  }, [refresh, status]);
+
+  const pickVault = useCallback(async () => {
+    setErr(null);
+    try {
+      const picked = await openDialog({ directory: true, multiple: false });
+      if (typeof picked !== "string") return;
+      await updateCurrentProject({ vault_path: picked });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [updateCurrentProject]);
+
+  const clearVault = useCallback(async () => {
+    setErr(null);
+    try {
+      if (status) {
+        await ipc.canonWatchStop(projectId);
+        setStatus(null);
+      }
+      await updateCurrentProject({ vault_path: null });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [projectId, status, updateCurrentProject]);
+
+  const start = useCallback(async () => {
+    if (!vaultPath) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const s = await ipc.canonWatchStart(projectId, vaultPath);
+      setStatus(s);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [projectId, vaultPath]);
+
+  const stop = useCallback(async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await ipc.canonWatchStop(projectId);
+      setStatus(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [projectId]);
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 rounded-md border border-line-subtle bg-surface-subtle p-4">
+      <div className="flex items-center gap-3">
+        <FolderOpen className="h-4 w-4 shrink-0 text-ink-faint" />
+        <div className="min-w-0 flex-1">
+          {vaultPath ? (
+            <div className="truncate text-sm text-ink">{vaultPath}</div>
+          ) : (
+            <div className="text-sm italic text-ink-faint">No vault directory set</div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="qbtn-ghost text-xs"
+          onClick={() => void pickVault()}
+        >
+          {vaultPath ? "Change…" : "Pick vault…"}
+        </button>
+        {vaultPath && (
+          <button
+            type="button"
+            className="qbtn-ghost text-xs"
+            onClick={() => void clearVault()}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {err && <ErrorBanner message={err} onDismiss={() => setErr(null)} />}
+
+      {vaultPath && (
+        <div className="flex items-center gap-3 border-t border-line-subtle pt-3">
+          {status ? (
+            <button
+              type="button"
+              className="qbtn inline-flex items-center gap-2"
+              disabled={busy}
+              onClick={() => void stop()}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <EyeOff className="h-4 w-4" />
+              )}
+              Stop watching
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="qbtn-primary inline-flex items-center gap-2"
+              disabled={busy}
+              onClick={() => void start()}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+              Start watching
+            </button>
+          )}
+          <WatchStatusInline status={status} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WatchStatusInline({ status }: { status: WatchStatus | null }): JSX.Element {
+  if (!status) {
+    return (
+      <span className="text-xs text-ink-faint">
+        Idle — manual ingest only until you start watching.
+      </span>
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-xs">
+      <div className="flex items-center gap-2 text-ink-muted">
+        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+        <span>
+          Watching · {status.events_received} event
+          {status.events_received === 1 ? "" : "s"} · {status.files_reingested}{" "}
+          re-ingested
+        </span>
+      </div>
+      {status.last_event_at && (
+        <div className="truncate text-ink-faint">
+          Last change {formatRelative(status.last_event_at)}
+          {status.last_event_path && <span> · {basename(status.last_event_path)}</span>}
+        </div>
+      )}
+      {status.last_error && (
+        <div className="truncate text-rose-600 dark:text-rose-400">
+          {status.last_error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const sec = Math.max(0, Math.round((now - then) / 1000));
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  return `${hr}h ago`;
+}
+
+function basename(p: string): string {
+  return p.split("/").pop() ?? p;
 }
 
 function MockEmbeddingsBanner(): JSX.Element {

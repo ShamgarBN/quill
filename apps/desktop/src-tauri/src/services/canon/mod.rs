@@ -16,8 +16,10 @@
 pub mod chunker;
 pub mod extract;
 pub mod ingest;
+pub mod watch_service;
 pub mod watcher;
 
 #[allow(unused_imports)]
 pub use chunker::{chunk_markdown, chunk_plain, Chunk, ChunkOptions};
 pub use ingest::{IngestReport, IngestService};
+pub use watch_service::{WatchService, WatchStatus};

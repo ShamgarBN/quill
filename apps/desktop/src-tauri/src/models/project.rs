@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// All project content lives under
 /// `<data_dir>/projects/<id>/` — see `services::storage::project::layout`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -14,6 +15,29 @@ pub struct Project {
     pub manuscript_word_count: u64,
     /// 0..15 — how many of the 15 Save-the-Cat beats have been touched.
     pub beat_progress: u8,
+    /// Absolute path to an external Obsidian vault directory to ingest from.
+    /// `None` means no vault is linked. Per-project so different books can
+    /// reference different worldbuilding corpora.
+    pub vault_path: Option<String>,
+    /// When true, ingestion runs automatically as files in `vault_path` are
+    /// modified (debounced). When false, ingestion stays manual.
+    pub vault_auto_watch: bool,
+}
+
+impl Default for Project {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: String::new(),
+            name: String::new(),
+            created_at: now,
+            updated_at: now,
+            manuscript_word_count: 0,
+            beat_progress: 0,
+            vault_path: None,
+            vault_auto_watch: false,
+        }
+    }
 }
 
 impl Project {
@@ -26,6 +50,37 @@ impl Project {
             updated_at: now,
             manuscript_word_count: 0,
             beat_progress: 0,
+            vault_path: None,
+            vault_auto_watch: false,
         }
+    }
+}
+
+/// Partial update for `Project`. All fields optional; missing fields leave
+/// the existing value untouched.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ProjectPatch {
+    pub name: Option<String>,
+    /// Use `Some(None)` to clear the linked vault, `Some(Some(path))` to set it.
+    pub vault_path: Option<Option<String>>,
+    pub vault_auto_watch: Option<bool>,
+}
+
+impl ProjectPatch {
+    pub fn apply(self, p: &mut Project) {
+        if let Some(name) = self.name {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                p.name = trimmed.to_string();
+            }
+        }
+        if let Some(v) = self.vault_path {
+            p.vault_path = v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        if let Some(v) = self.vault_auto_watch {
+            p.vault_auto_watch = v;
+        }
+        p.updated_at = Utc::now();
     }
 }

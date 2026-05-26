@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import type { Project, Settings, SettingsPatch, ThemePreference } from "@/types";
+import type {
+  Project,
+  ProjectPatch,
+  Settings,
+  SettingsPatch,
+  ThemePreference,
+} from "@/types";
 import * as ipc from "@/lib/ipc";
 
 export type RouteId =
@@ -39,6 +45,7 @@ interface AppState {
   refreshProjects: () => Promise<void>;
   createProject: (name: string) => Promise<Project>;
   openProject: (id: string) => Promise<void>;
+  updateCurrentProject: (patch: ProjectPatch) => Promise<Project>;
 }
 
 function resolveTheme(pref: ThemePreference): "light" | "dark" {
@@ -139,5 +146,18 @@ export const useApp = create<AppState>((set, get) => ({
   openProject: async (id) => {
     const project = await ipc.projectOpen(id);
     set({ currentProject: project, route: "manuscript" });
+  },
+
+  updateCurrentProject: async (patch) => {
+    const current = get().currentProject;
+    if (!current) {
+      throw new Error("no current project to update");
+    }
+    const project = await ipc.projectUpdate(current.id, patch);
+    set((s) => ({
+      currentProject: project,
+      projects: s.projects.map((p) => (p.id === project.id ? project : p)),
+    }));
+    return project;
   },
 }));

@@ -5,6 +5,7 @@
 
 use crate::error::Result;
 use crate::services::{
+    canon::WatchService,
     crypto::SecretStore,
     llm::{AuditLog, ProviderRegistry},
     storage::ProjectStore,
@@ -23,6 +24,7 @@ pub struct AppState {
     pub audit: Arc<AuditLog>,
     pub vectors: Arc<dyn VectorStore>,
     pub providers: ProviderRegistry,
+    pub watches: Arc<WatchService>,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
             audit,
             vectors,
             providers,
+            watches: Arc::new(WatchService::new()),
         })
     }
 }
