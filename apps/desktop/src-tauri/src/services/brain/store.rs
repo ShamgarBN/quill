@@ -157,6 +157,64 @@ impl<'a> IdeaStore<'a> {
         self.save(project_id, &ideas)?;
         Ok(updated)
     }
+
+    /// Pick up to `limit` ideas whose tags target the current draft.
+    ///
+    /// Tag conventions (matched case-insensitively):
+    ///   - `beat:<beat_id>` → matches if `beat_id` equals the active beat
+    ///   - `scene:<scene_id>` → matches if `scene_id` equals the active scene
+    ///   - `pov:<name>` → matches if `name` is contained in (or contains)
+    ///     the POV name, both lowercased
+    ///
+    /// `do_not_send=true` ideas are excluded — they should never leave the
+    /// machine. Newest ideas come first; if multiple ideas tie, the more
+    /// recently created one wins. Returns at most `limit` items.
+    pub fn relevant_for_draft(
+        &self,
+        project_id: &str,
+        beat_id: Option<&str>,
+        scene_id: Option<&str>,
+        pov: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Idea>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let ideas = self.list(project_id)?;
+        let pov_lower = pov.map(|s| s.to_lowercase());
+        let mut matched: Vec<Idea> = ideas
+            .into_iter()
+            .filter(|i| !i.do_not_send)
+            .filter(|i| {
+                i.tags.iter().any(|raw| {
+                    let tag = raw.trim().to_lowercase();
+                    if let Some(beat) = beat_id {
+                        if tag == format!("beat:{}", beat.to_lowercase()) {
+                            return true;
+                        }
+                    }
+                    if let Some(scene) = scene_id {
+                        if tag == format!("scene:{}", scene.to_lowercase()) {
+                            return true;
+                        }
+                    }
+                    if let Some(pov) = pov_lower.as_deref() {
+                        if let Some(rest) = tag.strip_prefix("pov:") {
+                            let rest = rest.trim();
+                            if !rest.is_empty() && (pov.contains(rest) || rest.contains(pov)) {
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                })
+            })
+            .collect();
+        // Most recent first.
+        matched.sort_by_key(|i| std::cmp::Reverse(i.created_at));
+        matched.truncate(limit);
+        Ok(matched)
+    }
 }
 
 #[cfg(test)]
@@ -230,5 +288,95 @@ mod tests {
             is.create(&p.id, ""),
             Err(QuillError::InvalidArgument(_))
         ));
+    }
+
+    fn add_idea(store: &IdeaStore<'_>, pid: &str, text: &str, tags: &[&str], dns: bool) {
+        let i = store.create(pid, text).unwrap();
+        store
+            .update(
+                pid,
+                &i.id,
+                IdeaPatch {
+                    tags: Some(tags.iter().map(|s| s.to_string()).collect()),
+                    do_not_send: Some(dns),
+                    ..IdeaPatch::default()
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn relevant_for_draft_matches_beat_tag() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = IdeaStore::new(&projects);
+        add_idea(
+            &store,
+            &p.id,
+            "kaelan flinches at fire",
+            &["beat:catalyst"],
+            false,
+        );
+        add_idea(&store, &p.id, "unrelated thought", &["random"], false);
+        let hits = store
+            .relevant_for_draft(&p.id, Some("catalyst"), None, None, 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].text.contains("flinches"));
+    }
+
+    #[test]
+    fn relevant_for_draft_matches_pov_loosely() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = IdeaStore::new(&projects);
+        // tag is "pov:kaelan", scene POV string is "Kaelan, 3rd-limited"
+        add_idea(&store, &p.id, "voice idea for Kael", &["pov:kaelan"], false);
+        let hits = store
+            .relevant_for_draft(&p.id, None, None, Some("Kaelan, 3rd-limited"), 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn relevant_for_draft_excludes_do_not_send() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = IdeaStore::new(&projects);
+        add_idea(&store, &p.id, "secret reveal", &["beat:finale"], true);
+        let hits = store
+            .relevant_for_draft(&p.id, Some("finale"), None, None, 10)
+            .unwrap();
+        assert!(hits.is_empty(), "do_not_send idea must not leak");
+    }
+
+    #[test]
+    fn relevant_for_draft_honors_limit_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = IdeaStore::new(&projects);
+        for n in 0..7 {
+            add_idea(
+                &store,
+                &p.id,
+                &format!("idea {n}"),
+                &["beat:midpoint"],
+                false,
+            );
+            // Sleep a tiny bit so created_at order is deterministic.
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let hits = store
+            .relevant_for_draft(&p.id, Some("midpoint"), None, None, 3)
+            .unwrap();
+        assert_eq!(hits.len(), 3);
+        // Newest (idea 6) first.
+        assert!(hits[0].text.ends_with("6"));
+        assert!(hits[1].text.ends_with("5"));
+        assert!(hits[2].text.ends_with("4"));
     }
 }

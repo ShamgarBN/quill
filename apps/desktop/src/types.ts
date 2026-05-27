@@ -145,6 +145,7 @@ export type IncludedCategory =
   | "character_pov"
   | "character_bible_entry"
   | "setting_canon"
+  | "idea_park"
   | "recent_paragraphs"
   | "canon_top_k"
   | "reference_pins"
@@ -498,6 +499,8 @@ export interface DraftPreview {
   /** How many setting-scoped (Location/Cosmology kind) canon chunks were
    *  injected as a separate block, based on the scene's `setting` field. */
   setting_canon_count: number;
+  /** How many Idea Park entries were auto-matched by tag and included. */
+  idea_count: number;
   provider: string;
   model: string;
 }

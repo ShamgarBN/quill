@@ -27,6 +27,8 @@ pub enum IncludedCategory {
     CharacterBibleEntry,
     /// Setting-kind canon chunk(s) matched by the scene's `setting` value.
     SettingCanon,
+    /// Idea Park entries tagged for the active beat/scene/POV.
+    IdeaPark,
     RecentParagraphs,
     CanonTopK,
     ReferencePins,

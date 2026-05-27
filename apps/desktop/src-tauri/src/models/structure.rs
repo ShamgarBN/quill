@@ -77,6 +77,29 @@ impl BeatId {
         }
     }
 
+    /// Stable kebab-case slug matching the serde serialized form. Used as
+    /// the canonical id in tag conventions (e.g. `beat:catalyst`) and as
+    /// the URL-safe key whenever a string is needed.
+    pub fn as_slug(self) -> &'static str {
+        match self {
+            BeatId::OpeningImage => "opening-image",
+            BeatId::ThemeStated => "theme-stated",
+            BeatId::SetUp => "set-up",
+            BeatId::Catalyst => "catalyst",
+            BeatId::Debate => "debate",
+            BeatId::BreakIntoTwo => "break-into-two",
+            BeatId::BStory => "b-story",
+            BeatId::FunAndGames => "fun-and-games",
+            BeatId::Midpoint => "midpoint",
+            BeatId::BadGuysCloseIn => "bad-guys-close-in",
+            BeatId::AllIsLost => "all-is-lost",
+            BeatId::DarkNightOfTheSoul => "dark-night-of-the-soul",
+            BeatId::BreakIntoThree => "break-into-three",
+            BeatId::Finale => "finale",
+            BeatId::FinalImage => "final-image",
+        }
+    }
+
     /// Target position as a fraction of total manuscript length.
     pub fn target_pct(self) -> f32 {
         match self {
