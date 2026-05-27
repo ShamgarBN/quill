@@ -8,8 +8,10 @@ import {
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  FolderSearch,
   KeyRound,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 
 const PROVIDER_INFO: Record<
@@ -379,17 +381,18 @@ function AuditLogSection(): JSX.Element {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [path, setPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [limit, setLimit] = useState(20);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [tail, p] = await Promise.all([ipc.auditTail(20), ipc.auditPath()]);
+      const [tail, p] = await Promise.all([ipc.auditTail(limit), ipc.auditPath()]);
       setEntries(tail.reverse()); // newest first
       setPath(p);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     void refresh();
@@ -397,16 +400,46 @@ function AuditLogSection(): JSX.Element {
 
   return (
     <Section title="Audit log">
-      <div className="px-4 py-3 text-xs text-ink-faint">
-        Append-only log of every cloud LLM call. We log the categories of content sent —
-        never the content itself.
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
+        <p className="text-xs text-ink-faint">
+          Append-only log of every cloud LLM call. We log the categories of content sent
+          — never the content itself.
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <select
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="qinput h-7 px-1.5 text-xs"
+            title="Number of recent entries to show"
+          >
+            {[20, 50, 100, 200].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="qbtn-ghost h-7 w-7 p-0"
+            title="Refresh"
+            aria-label="Refresh audit log"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
       </div>
       {entries.length === 0 ? (
         <div className="px-4 pb-3 text-sm text-ink-faint">
           {loading ? "Loading…" : "No cloud calls have been made yet."}
         </div>
       ) : (
-        <ul className="divide-y divide-line-subtle">
+        <ul className="max-h-96 overflow-y-auto divide-y divide-line-subtle">
           {entries.map((e, i) => (
             <li key={i} className="px-4 py-2 text-xs">
               <div className="flex items-center justify-between gap-3">
@@ -437,8 +470,20 @@ function AuditLogSection(): JSX.Element {
           ))}
         </ul>
       )}
-      <div className="px-4 py-3">
-        <code className="font-mono text-xs text-ink-subtle">{path ?? "—"}</code>
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <code className="min-w-0 truncate font-mono text-xs text-ink-subtle">
+          {path ?? "—"}
+        </code>
+        {path && (
+          <button
+            type="button"
+            onClick={() => void ipc.systemRevealPath(path).catch(() => undefined)}
+            className="qbtn-ghost h-7 shrink-0 px-2 text-xs"
+            title={`Reveal in Finder · ${path}`}
+          >
+            <FolderSearch className="mr-1 h-3.5 w-3.5" /> Reveal
+          </button>
+        )}
       </div>
     </Section>
   );

@@ -13,6 +13,7 @@ mod drafting;
 mod llm;
 mod manuscript;
 mod structure;
+mod system;
 mod voice;
 
 pub use brain::*;
@@ -21,6 +22,7 @@ pub use drafting::*;
 pub use llm::*;
 pub use manuscript::*;
 pub use structure::*;
+pub use system::*;
 pub use voice::*;
 
 use crate::config;
@@ -78,6 +80,14 @@ pub fn project_update(
     patch: ProjectPatch,
 ) -> Result<Project> {
     state.projects.update(&id, patch)
+}
+
+/// Absolute filesystem path to the project's root directory. Used by the
+/// frontend reveal-in-Finder button.
+#[tauri::command]
+pub fn project_root_path(state: State<'_, AppState>, id: String) -> Result<String> {
+    let dir = state.projects.root_dir(&id)?;
+    Ok(dir.display().to_string())
 }
 
 // ---------- Settings ----------

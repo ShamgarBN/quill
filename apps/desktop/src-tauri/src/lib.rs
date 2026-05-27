@@ -43,6 +43,7 @@ pub fn run() {
             commands::project_list,
             commands::project_open,
             commands::project_update,
+            commands::project_root_path,
             commands::settings_get,
             commands::settings_update,
             commands::theme_set,
@@ -94,6 +95,7 @@ pub fn run() {
             commands::brain_idea_create,
             commands::brain_idea_update,
             commands::brain_idea_delete,
+            commands::system_reveal_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

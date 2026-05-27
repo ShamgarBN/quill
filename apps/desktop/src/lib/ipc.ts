@@ -60,6 +60,9 @@ export const projectOpen = (id: string): Promise<Project> =>
 export const projectUpdate = (id: string, patch: ProjectPatch): Promise<Project> =>
   invoke<Project>("project_update", { id, patch });
 
+export const projectRootPath = (id: string): Promise<string> =>
+  invoke<string>("project_root_path", { id });
+
 // ---------- Settings ----------
 
 export const settingsGet = (): Promise<Settings> => invoke<Settings>("settings_get");
@@ -341,3 +344,8 @@ export const appInfo = (): Promise<{
   data_dir: string;
   phase: string;
 }> => invoke("app_info");
+
+// ---------- System integration ----------
+
+export const systemRevealPath = (path: string): Promise<void> =>
+  invoke<void>("system_reveal_path", { path });
