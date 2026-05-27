@@ -14,7 +14,7 @@
  * fresh Scene so the parent can update its `scenes` array.
  */
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, FolderSearch } from "lucide-react";
 import * as ipc from "@/lib/ipc";
 import {
   BEAT_META,
@@ -45,12 +45,15 @@ interface Props {
   projectId: string;
   scene: Scene;
   onSceneUpdated: (scene: Scene) => void;
+  /** On-disk path of the scene's .md file, for the reveal-in-Finder button. */
+  scenePath?: string;
 }
 
 export function SceneMetaStrip({
   projectId,
   scene,
   onSceneUpdated,
+  scenePath,
 }: Props): JSX.Element {
   // Local edit state for text fields so the parent doesn't re-render the
   // editor on every keystroke.
@@ -158,8 +161,21 @@ export function SceneMetaStrip({
           </SelectChip>
         </Field>
 
-        <div className="ml-auto text-ink-faint">
-          {scene.word_count.toLocaleString()} words
+        <div className="ml-auto flex items-center gap-2 text-ink-faint">
+          <span>{scene.word_count.toLocaleString()} words</span>
+          {scenePath && (
+            <button
+              type="button"
+              onClick={() =>
+                void ipc.systemRevealPath(scenePath).catch(() => undefined)
+              }
+              className="rounded p-0.5 hover:bg-surface-elevated hover:text-ink"
+              title={`Reveal in Finder · ${scenePath}`}
+              aria-label="Reveal scene file in Finder"
+            >
+              <FolderSearch className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
       {error && <div className="mt-1 text-xs text-rose-600">{error}</div>}

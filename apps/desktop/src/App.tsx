@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useApp } from "@/stores/app";
+import * as ipc from "@/lib/ipc";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { WindowDragBar } from "@/components/shell/WindowDragBar";
@@ -40,6 +41,26 @@ export default function App(): JSX.Element {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleFocus]);
+
+  // Auto-resume vault watcher: if the current project has vault_auto_watch
+  // and a vault_path set, attempt to start the watcher silently. We track
+  // which projects we've already attempted in this session so the effect
+  // doesn't re-fire if the project metadata refreshes for other reasons.
+  const autoStartedFor = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!currentProject) return;
+    if (!currentProject.vault_auto_watch || !currentProject.vault_path) return;
+    if (autoStartedFor.current.has(currentProject.id)) return;
+    autoStartedFor.current.add(currentProject.id);
+    void ipc
+      .canonWatchStart(currentProject.id, currentProject.vault_path)
+      .catch((e) => {
+        // Vault directory may have moved/been deleted, or perms changed.
+        // Don't surface as a hard error — the user can re-pick the path in
+        // the Canon view if they care. Log for triage.
+        console.warn("Vault watcher auto-resume failed:", e);
+      });
+  }, [currentProject]);
 
   if (!ready) {
     return <BootSplash />;

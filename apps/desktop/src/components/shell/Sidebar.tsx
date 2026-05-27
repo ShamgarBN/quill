@@ -8,8 +8,10 @@ import {
   Settings as SettingsIcon,
   ChevronLeft,
   ChevronRight,
+  FolderSearch,
 } from "lucide-react";
 import { useApp, type RouteId } from "@/stores/app";
+import * as ipc from "@/lib/ipc";
 import { cn } from "@/lib/cn";
 
 interface NavItem {
@@ -56,19 +58,37 @@ export function Sidebar(): JSX.Element {
             </div>
           </div>
         )}
-        <button
-          type="button"
-          className="qbtn-ghost h-7 w-7 p-0"
-          onClick={toggle}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
+        <div className="flex items-center gap-1">
+          {!collapsed && project && (
+            <button
+              type="button"
+              className="qbtn-ghost h-7 w-7 p-0"
+              onClick={() =>
+                void ipc
+                  .projectRootPath(project.id)
+                  .then((p) => ipc.systemRevealPath(p))
+                  .catch(() => undefined)
+              }
+              title="Reveal project folder in Finder"
+              aria-label="Reveal project folder in Finder"
+            >
+              <FolderSearch className="h-4 w-4" />
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            className="qbtn-ghost h-7 w-7 p-0"
+            onClick={toggle}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
+        </div>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 p-2">

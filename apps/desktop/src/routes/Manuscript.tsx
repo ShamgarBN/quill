@@ -473,6 +473,7 @@ export function ManuscriptView(): JSX.Element {
                   <SceneMetaStrip
                     projectId={project.id}
                     scene={activeScene}
+                    scenePath={content?.path}
                     onSceneUpdated={(updated) =>
                       setScenes((curr) =>
                         curr.map((s) => (s.id === updated.id ? updated : s)),
