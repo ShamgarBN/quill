@@ -36,6 +36,14 @@ pub enum ChunkSensitivity {
     DoNotSend,
 }
 
+/// One per-project rule that maps a vault-relative path pattern to a
+/// sensitivity. See `services::canon::rules` for matching semantics.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VaultRule {
+    pub pattern: String,
+    pub sensitivity: ChunkSensitivity,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CanonDocument {
     pub id: String,
@@ -49,7 +57,8 @@ pub struct CanonDocument {
     pub byte_size: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CanonChunk {
     pub id: String,
     pub doc_id: String,
@@ -60,6 +69,12 @@ pub struct CanonChunk {
     pub headings: Vec<String>,
     pub word_count: u32,
     pub sensitivity: ChunkSensitivity,
+    /// Absolute path of the source file this chunk came from. Carried on
+    /// the chunk (in addition to the document record) so vault rules can
+    /// be re-applied retroactively without re-ingesting.
+    /// Defaulted in serde for backward compat with v0.2 indices written
+    /// before this field existed.
+    pub source_path: String,
 }
 
 /// What retrieval returns: the chunk itself plus its similarity score.

@@ -152,6 +152,31 @@ impl VectorStore for JsonVectorStore {
             .map(|e| e.chunk.clone())
             .collect())
     }
+
+    async fn update_sensitivities(&self, updates: &[(String, ChunkSensitivity)]) -> Result<u64> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+        let map: std::collections::HashMap<&str, ChunkSensitivity> =
+            updates.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+        let mut g = self
+            .inner
+            .write()
+            .map_err(|_| QuillError::Internal("vector store lock poisoned".into()))?;
+        let mut changed = 0u64;
+        for entry in g.entries.iter_mut() {
+            if let Some(new_sens) = map.get(entry.chunk.id.as_str()) {
+                if entry.chunk.sensitivity != *new_sens {
+                    entry.chunk.sensitivity = *new_sens;
+                    changed += 1;
+                }
+            }
+        }
+        if changed > 0 {
+            self.flush(&g)?;
+        }
+        Ok(changed)
+    }
 }
 
 fn norm(v: &[f32]) -> f32 {
@@ -187,6 +212,7 @@ mod tests {
             headings: Vec::new(),
             word_count: text.split_whitespace().count() as u32,
             sensitivity: ChunkSensitivity::Public,
+            source_path: String::new(),
         }
     }
 

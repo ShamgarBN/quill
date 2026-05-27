@@ -2,7 +2,9 @@
 
 use crate::error::{QuillError, Result};
 use crate::models::{CanonKind, ChunkRef, ChunkSensitivity};
-use crate::services::canon::{IngestReport, IngestService, WatchStatus};
+use crate::services::canon::{
+    reapply_rules, resolve_sensitivity, IngestReport, IngestService, VaultPolicy, WatchStatus,
+};
 use crate::services::llm::ProviderId;
 use crate::state::AppState;
 use std::path::{Path, PathBuf};
@@ -33,14 +35,25 @@ pub async fn canon_ingest_file(
 ) -> Result<IngestReport> {
     let path_buf = PathBuf::from(&path);
     let embedder = embedder_for(&state).await?;
+    // Resolve sensitivity: explicit > frontmatter > folder rules > project default.
+    let resolved_sensitivity = match sensitivity {
+        Some(s) => s,
+        None => {
+            let project = state.projects.open(&project_id)?;
+            let vault_path = project.vault_path.as_deref().map(Path::new);
+            let raw = std::fs::read_to_string(&path_buf).ok();
+            resolve_sensitivity(
+                &path_buf,
+                vault_path,
+                &project.vault_rules,
+                project.vault_default_sensitivity,
+                raw.as_deref(),
+            )
+        }
+    };
     let svc = IngestService::new(&*embedder, &*state.vectors);
-    svc.ingest_file(
-        &project_id,
-        &path_buf,
-        kind,
-        sensitivity.unwrap_or(ChunkSensitivity::Public),
-    )
-    .await
+    svc.ingest_file(&project_id, &path_buf, kind, resolved_sensitivity)
+        .await
 }
 
 #[tauri::command]
@@ -90,9 +103,14 @@ pub async fn canon_watch_start(
     let embedder = embedder_for(&state).await?;
     let vectors = state.vectors.clone();
 
+    let policy = VaultPolicy {
+        vault_path: path,
+        rules: project.vault_rules.clone(),
+        default: project.vault_default_sensitivity,
+    };
     let status = state
         .watches
-        .start(&project_id, &path, embedder, vectors)
+        .start(&project_id, policy, embedder, vectors)
         .await?;
 
     // Persist the path + enable the auto-watch flag so the next app start
@@ -105,6 +123,35 @@ pub async fn canon_watch_start(
     let _ = state.projects.update(&project_id, patch)?;
 
     Ok(status)
+}
+
+/// Apply the project's current vault rules + default sensitivity
+/// retroactively to every existing chunk in the index. Returns the count
+/// of chunks whose sensitivity actually changed.
+///
+/// Also propagates the new policy to the active watcher (if any) so
+/// future re-ingests pick up the same rules.
+#[tauri::command]
+pub async fn canon_reapply_rules(state: State<'_, AppState>, project_id: String) -> Result<u64> {
+    let project = state.projects.open(&project_id)?;
+    let vault_path = project.vault_path.as_deref().map(Path::new);
+    // Push the new policy to the live watcher if there is one.
+    if let Some(vp) = vault_path {
+        let policy = VaultPolicy {
+            vault_path: vp.to_path_buf(),
+            rules: project.vault_rules.clone(),
+            default: project.vault_default_sensitivity,
+        };
+        state.watches.update_policy(&project_id, policy).await;
+    }
+    reapply_rules(
+        &*state.vectors,
+        &project_id,
+        vault_path,
+        &project.vault_rules,
+        project.vault_default_sensitivity,
+    )
+    .await
 }
 
 /// Stop the active watch for a project. Returns the post-stop status (which
