@@ -17,8 +17,11 @@ import {
   FileText,
   FolderOpen,
   Loader2,
+  Plus,
   Search,
+  Shield,
   ShieldOff,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
@@ -28,6 +31,7 @@ import type {
   ChunkRef,
   ChunkSensitivity,
   IngestReport,
+  VaultRule,
   WatchStatus,
 } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
@@ -170,6 +174,17 @@ export function CanonView(): JSX.Element {
             temp file, so you'd lose data if we acted on Removed events).
           </p>
           <VaultWatcherCard projectId={project.id} />
+        </section>
+
+        <section>
+          <SectionTitle>Privacy rules</SectionTitle>
+          <p className="mt-1 max-w-prose text-xs text-ink-faint">
+            Map folders (or path prefixes) to sensitivity tiers. Files in a matching
+            folder get that tier on every re-ingest. A note's own YAML frontmatter (
+            <code className="text-ink-muted">quill-sensitivity: do_not_send</code>)
+            overrides folder rules. Anything unmatched falls back to the default below.
+          </p>
+          <VaultPrivacyCard />
         </section>
 
         <section>
@@ -382,6 +397,174 @@ function ReportRow({ report }: { report: IngestReport }): JSX.Element {
       <div className="shrink-0 text-right text-xs text-ink-faint">
         <div>{report.chunks_emitted} chunks</div>
         <div>{(report.bytes_read / 1024).toFixed(1)} KB</div>
+      </div>
+    </div>
+  );
+}
+
+function VaultPrivacyCard(): JSX.Element {
+  const project = useApp((s) => s.currentProject);
+  const updateCurrentProject = useApp((s) => s.updateCurrentProject);
+
+  // Local draft state so the user can stage multiple edits before saving.
+  const [rules, setRules] = useState<VaultRule[]>(project?.vault_rules ?? []);
+  const [defaultSens, setDefaultSens] = useState<ChunkSensitivity>(
+    project?.vault_default_sensitivity ?? "public",
+  );
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
+
+  // Re-sync local state when the project itself changes.
+  useEffect(() => {
+    setRules(project?.vault_rules ?? []);
+    setDefaultSens(project?.vault_default_sensitivity ?? "public");
+    setDirty(false);
+    setStatus(null);
+  }, [project?.id, project?.vault_rules, project?.vault_default_sensitivity]);
+
+  const addRule = (): void => {
+    setRules((r) => [...r, { pattern: "", sensitivity: "do_not_send" }]);
+    setDirty(true);
+  };
+  const updateRule = (i: number, patch: Partial<VaultRule>): void => {
+    setRules((r) => r.map((rule, idx) => (idx === i ? { ...rule, ...patch } : rule)));
+    setDirty(true);
+  };
+  const removeRule = (i: number): void => {
+    setRules((r) => r.filter((_, idx) => idx !== i));
+    setDirty(true);
+  };
+
+  const save = async (): Promise<void> => {
+    if (!project) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      // Validate: strip empty patterns.
+      const cleaned = rules.filter((r) => r.pattern.trim() !== "");
+      await updateCurrentProject({
+        vault_rules: cleaned,
+        vault_default_sensitivity: defaultSens,
+      });
+      const changed = await ipc.canonReapplyRules(project.id);
+      setDirty(false);
+      setStatus({
+        kind: "ok",
+        message:
+          changed > 0
+            ? `Saved. ${changed} existing chunk${changed === 1 ? "" : "s"} re-tagged.`
+            : "Saved. No existing chunks needed re-tagging.",
+      });
+    } catch (e) {
+      setStatus({
+        kind: "err",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!project) return <></>;
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 rounded-md border border-line-subtle bg-surface-subtle p-4">
+      {rules.length === 0 ? (
+        <div className="text-xs text-ink-faint">
+          No rules yet. Add one below to protect a folder of your vault. For example: a
+          rule with pattern <code className="text-ink-muted">DM-Notes</code> and
+          sensitivity <code className="text-ink-muted">do_not_send</code> protects any
+          file in a folder named <code className="text-ink-muted">DM-Notes</code>
+          anywhere in your vault.
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {rules.map((rule, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <Shield className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+              <input
+                type="text"
+                value={rule.pattern}
+                onChange={(e) => updateRule(i, { pattern: e.target.value })}
+                placeholder="folder name or path/prefix"
+                className="qinput h-7 flex-1 px-2 text-xs"
+              />
+              <select
+                value={rule.sensitivity}
+                onChange={(e) =>
+                  updateRule(i, { sensitivity: e.target.value as ChunkSensitivity })
+                }
+                className="qinput h-7 px-1.5 text-xs"
+              >
+                <option value="public">Public</option>
+                <option value="spoiler">Spoiler</option>
+                <option value="do_not_send">Do not send</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => removeRule(i)}
+                className="qbtn-ghost h-7 w-7 p-0 text-ink-faint hover:text-rose-600"
+                title="Remove rule"
+                aria-label="Remove rule"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        onClick={addRule}
+        className="qbtn-ghost inline-flex h-7 self-start items-center gap-1 px-2 text-xs"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add rule
+      </button>
+
+      <div className="flex items-center justify-between gap-3 border-t border-line-subtle pt-3">
+        <label className="inline-flex items-center gap-2 text-xs text-ink-muted">
+          <span>Default for unmatched files</span>
+          <select
+            value={defaultSens}
+            onChange={(e) => {
+              setDefaultSens(e.target.value as ChunkSensitivity);
+              setDirty(true);
+            }}
+            className="qinput h-7 px-1.5 text-xs"
+          >
+            <option value="public">Public</option>
+            <option value="spoiler">Spoiler</option>
+            <option value="do_not_send">Do not send</option>
+          </select>
+        </label>
+        <div className="flex items-center gap-2">
+          {status && (
+            <span
+              className={cn(
+                "text-xs",
+                status.kind === "ok"
+                  ? "text-emerald-700 dark:text-emerald-300"
+                  : "text-rose-700 dark:text-rose-300",
+              )}
+            >
+              {status.message}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || !dirty}
+            className="qbtn-primary h-7 px-3 text-xs disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            Save rules
+          </button>
+        </div>
       </div>
     </div>
   );

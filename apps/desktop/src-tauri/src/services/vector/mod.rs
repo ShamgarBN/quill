@@ -13,7 +13,7 @@ mod json_store;
 pub use json_store::JsonVectorStore;
 
 use crate::error::Result;
-use crate::models::{CanonChunk, ChunkRef};
+use crate::models::{CanonChunk, ChunkRef, ChunkSensitivity};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -39,4 +39,9 @@ pub trait VectorStore: Send + Sync {
     /// Walk every chunk for a project. Used by cross-link queries that
     /// need exact text matching rather than similarity search.
     async fn chunks_for_project(&self, project_id: &str) -> Result<Vec<CanonChunk>>;
+
+    /// Update the sensitivity tag on a set of chunks by id. Used by the
+    /// retroactive vault-rules re-apply path. Returns the count of chunks
+    /// actually modified (i.e. whose new tag differed from the old one).
+    async fn update_sensitivities(&self, updates: &[(String, ChunkSensitivity)]) -> Result<u64>;
 }

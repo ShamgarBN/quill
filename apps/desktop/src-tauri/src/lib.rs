@@ -58,6 +58,7 @@ pub fn run() {
             commands::canon_watch_start,
             commands::canon_watch_stop,
             commands::canon_watch_status,
+            commands::canon_reapply_rules,
             commands::llm_provider_status,
             commands::llm_ping,
             commands::audit_tail,

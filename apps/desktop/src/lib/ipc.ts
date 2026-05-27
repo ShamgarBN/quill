@@ -141,6 +141,12 @@ export const canonWatchStop = (projectId: string): Promise<WatchStatus | null> =
 export const canonWatchStatus = (projectId: string): Promise<WatchStatus | null> =>
   invoke<WatchStatus | null>("canon_watch_status", { projectId });
 
+/** Reapply vault rules retroactively to every existing chunk. Returns
+ *  the count of chunks whose sensitivity changed. Also propagates the
+ *  current policy to the active watcher if any. */
+export const canonReapplyRules = (projectId: string): Promise<number> =>
+  invoke<number>("canon_reapply_rules", { projectId });
+
 // ---------- LLM ----------
 
 export const llmProviderStatus = (provider: ProviderId): Promise<ProviderStatus> =>

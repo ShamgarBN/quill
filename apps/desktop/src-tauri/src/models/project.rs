@@ -1,3 +1,4 @@
+use crate::models::canon::{ChunkSensitivity, VaultRule};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,14 @@ pub struct Project {
     /// When true, ingestion runs automatically as files in `vault_path` are
     /// modified (debounced). When false, ingestion stays manual.
     pub vault_auto_watch: bool,
+    /// Per-project folder/path rules that map vault paths to a sensitivity
+    /// tier. Consulted on every ingest (auto or manual) when the caller
+    /// doesn't explicitly override.
+    pub vault_rules: Vec<VaultRule>,
+    /// Sensitivity used for any vault file not matched by a rule and not
+    /// tagged via frontmatter. Defaults to `Public` (backward-compatible
+    /// with v0.2 projects).
+    pub vault_default_sensitivity: ChunkSensitivity,
 }
 
 impl Default for Project {
@@ -36,6 +45,8 @@ impl Default for Project {
             beat_progress: 0,
             vault_path: None,
             vault_auto_watch: false,
+            vault_rules: Vec::new(),
+            vault_default_sensitivity: ChunkSensitivity::Public,
         }
     }
 }
@@ -52,6 +63,8 @@ impl Project {
             beat_progress: 0,
             vault_path: None,
             vault_auto_watch: false,
+            vault_rules: Vec::new(),
+            vault_default_sensitivity: ChunkSensitivity::Public,
         }
     }
 }
@@ -65,6 +78,9 @@ pub struct ProjectPatch {
     /// Use `Some(None)` to clear the linked vault, `Some(Some(path))` to set it.
     pub vault_path: Option<Option<String>>,
     pub vault_auto_watch: Option<bool>,
+    /// Wholesale replace the rules list. Pass `Some(Vec::new())` to clear.
+    pub vault_rules: Option<Vec<VaultRule>>,
+    pub vault_default_sensitivity: Option<ChunkSensitivity>,
 }
 
 impl ProjectPatch {
@@ -80,6 +96,12 @@ impl ProjectPatch {
         }
         if let Some(v) = self.vault_auto_watch {
             p.vault_auto_watch = v;
+        }
+        if let Some(v) = self.vault_rules {
+            p.vault_rules = v;
+        }
+        if let Some(v) = self.vault_default_sensitivity {
+            p.vault_default_sensitivity = v;
         }
         p.updated_at = Utc::now();
     }

@@ -465,6 +465,7 @@ mod tests {
             headings: vec!["Lake Tarn".into()],
             word_count: 14,
             sensitivity: ChunkSensitivity::Public,
+            source_path: String::new(),
         };
         // Mock embedder is deterministic — embedding the chunk text gives a
         // vector that the same query will retrieve.

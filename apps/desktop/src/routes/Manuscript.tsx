@@ -545,6 +545,8 @@ export function ManuscriptView(): JSX.Element {
         </div>
       )}
 
+      <VaultPrivacyBanner />
+
       {searchOpen && (
         <SearchOverlay
           inputRef={searchInputRef}
@@ -1114,6 +1116,41 @@ function DriftIndicator({
       <Icon className="h-3.5 w-3.5" />
       Voice: {label} ({(score * 100).toFixed(0)})
     </span>
+  );
+}
+
+function VaultPrivacyBanner(): JSX.Element | null {
+  const project = useApp((s) => s.currentProject);
+  const settings = useApp((s) => s.settings);
+  const setRoute = useApp((s) => s.setRoute);
+
+  if (!project || !settings) return null;
+  if (!project.vault_path) return null;
+  const cloudActive =
+    settings.chat_provider !== "mock" || settings.embedding_provider !== "mock";
+  if (!cloudActive) return null;
+  // Banner only when the safety net is missing: no rules AND default is Public.
+  const hasRules = project.vault_rules.length > 0;
+  const defaultIsPublic = project.vault_default_sensitivity === "public";
+  if (hasRules || !defaultIsPublic) return null;
+
+  return (
+    <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-100">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="flex-1">
+        <span className="font-medium">Your vault is auto-syncing as Public.</span> Every
+        file is eligible to be sent to{" "}
+        <span className="font-medium">{settings.chat_provider}</span>. Add folder rules
+        before drafting, or restrict to Mock providers.
+      </div>
+      <button
+        type="button"
+        onClick={() => setRoute("canon")}
+        className="qbtn-ghost h-6 shrink-0 px-2 text-xs"
+      >
+        Configure rules →
+      </button>
+    </div>
   );
 }
 

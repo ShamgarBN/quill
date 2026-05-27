@@ -40,6 +40,8 @@ export interface Project {
   beat_progress: number;
   vault_path: string | null;
   vault_auto_watch: boolean;
+  vault_rules: VaultRule[];
+  vault_default_sensitivity: ChunkSensitivity;
 }
 
 export interface ProjectPatch {
@@ -47,6 +49,13 @@ export interface ProjectPatch {
   /** `null` to clear, `string` to set. Omit to leave unchanged. */
   vault_path?: string | null;
   vault_auto_watch?: boolean;
+  vault_rules?: VaultRule[];
+  vault_default_sensitivity?: ChunkSensitivity;
+}
+
+export interface VaultRule {
+  pattern: string;
+  sensitivity: ChunkSensitivity;
 }
 
 export interface WatchStatus {
