@@ -301,6 +301,7 @@ mod tests {
             word_count: 1,
             sensitivity: s,
             source_path: path.into(),
+            kind: crate::models::CanonKind::Lore,
         };
         store
             .insert_many(&[

@@ -6,7 +6,7 @@
 //! ANN indexing yet.
 
 use crate::error::{QuillError, Result};
-use crate::models::{CanonChunk, ChunkRef, ChunkSensitivity};
+use crate::models::{CanonChunk, CanonKind, ChunkRef, ChunkSensitivity};
 use crate::services::storage;
 use crate::services::vector::VectorStore;
 use async_trait::async_trait;
@@ -49,6 +49,50 @@ impl JsonVectorStore {
 
     fn flush(&self, file: &StoredFile) -> Result<()> {
         storage::atomic_write_json(&self.path, file)
+    }
+
+    async fn search_inner(
+        &self,
+        project_id: &str,
+        query: &[f32],
+        kinds: Option<&[CanonKind]>,
+        k: usize,
+        respect_do_not_send: bool,
+    ) -> Result<Vec<ChunkRef>> {
+        let g = self
+            .inner
+            .read()
+            .map_err(|_| QuillError::Internal("vector store lock poisoned".into()))?;
+        let q_norm = norm(query);
+        if q_norm == 0.0 {
+            return Ok(Vec::new());
+        }
+        let mut scored: Vec<(f32, &CanonChunk)> = g
+            .entries
+            .iter()
+            .filter(|e| e.chunk.project_id == project_id)
+            .filter(|e| {
+                if respect_do_not_send {
+                    !matches!(e.chunk.sensitivity, ChunkSensitivity::DoNotSend)
+                } else {
+                    true
+                }
+            })
+            .filter(|e| match kinds {
+                Some(ks) => ks.contains(&e.chunk.kind),
+                None => true,
+            })
+            .map(|e| {
+                let s = cosine(query, &e.embedding, q_norm);
+                (s, &e.chunk)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(k);
+        Ok(scored
+            .into_iter()
+            .map(|(s, c)| ChunkRef::from_chunk(c, s))
+            .collect())
     }
 }
 
@@ -98,36 +142,23 @@ impl VectorStore for JsonVectorStore {
         k: usize,
         respect_do_not_send: bool,
     ) -> Result<Vec<ChunkRef>> {
-        let g = self
-            .inner
-            .read()
-            .map_err(|_| QuillError::Internal("vector store lock poisoned".into()))?;
-        let q_norm = norm(query);
-        if q_norm == 0.0 {
+        self.search_inner(project_id, query, None, k, respect_do_not_send)
+            .await
+    }
+
+    async fn search_by_kind(
+        &self,
+        project_id: &str,
+        query: &[f32],
+        kinds: &[CanonKind],
+        k: usize,
+        respect_do_not_send: bool,
+    ) -> Result<Vec<ChunkRef>> {
+        if kinds.is_empty() {
             return Ok(Vec::new());
         }
-        let mut scored: Vec<(f32, &CanonChunk)> = g
-            .entries
-            .iter()
-            .filter(|e| e.chunk.project_id == project_id)
-            .filter(|e| {
-                if respect_do_not_send {
-                    !matches!(e.chunk.sensitivity, ChunkSensitivity::DoNotSend)
-                } else {
-                    true
-                }
-            })
-            .map(|e| {
-                let s = cosine(query, &e.embedding, q_norm);
-                (s, &e.chunk)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(k);
-        Ok(scored
-            .into_iter()
-            .map(|(s, c)| ChunkRef::from_chunk(c, s))
-            .collect())
+        self.search_inner(project_id, query, Some(kinds), k, respect_do_not_send)
+            .await
     }
 
     async fn count_for_project(&self, project_id: &str) -> Result<u64> {
@@ -213,6 +244,7 @@ mod tests {
             word_count: text.split_whitespace().count() as u32,
             sensitivity: ChunkSensitivity::Public,
             source_path: String::new(),
+            kind: crate::models::CanonKind::Lore,
         }
     }
 

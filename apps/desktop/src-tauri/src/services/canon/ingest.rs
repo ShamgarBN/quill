@@ -67,11 +67,12 @@ impl<'a> IngestService<'a> {
         let source_path = canonical.to_string_lossy().to_string();
         let now = Utc::now();
         let chunks_emitted = chunks.len() as u32;
+        let resolved_kind = kind_override.unwrap_or(crate::models::canon::CanonKind::Lore);
         let document = CanonDocument {
             id: doc_id.clone(),
             project_id: project_id.to_string(),
             source_path: source_path.clone(),
-            kind: kind_override.unwrap_or(crate::models::canon::CanonKind::Lore),
+            kind: resolved_kind,
             source_kind: kind,
             ingested_at: now,
             updated_at: now,
@@ -96,6 +97,7 @@ impl<'a> IngestService<'a> {
                     word_count: chunk.word_count,
                     sensitivity,
                     source_path: source_path.clone(),
+                    kind: resolved_kind,
                 },
                 embedding,
             ));

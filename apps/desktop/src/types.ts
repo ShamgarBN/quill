@@ -143,6 +143,8 @@ export type IncludedCategory =
   | "scene_card"
   | "beat_description"
   | "character_pov"
+  | "character_bible_entry"
+  | "setting_canon"
   | "recent_paragraphs"
   | "canon_top_k"
   | "reference_pins"
@@ -490,6 +492,12 @@ export interface DraftPreview {
   current_drift: number | null;
   drift_blocks_send: boolean;
   canon_chunks: ChunkRef[];
+  /** Name of the Character Bible entry auto-matched from the scene's POV.
+   *  Null when scene has no POV or no character matches. */
+  pov_character_name: string | null;
+  /** How many setting-scoped (Location/Cosmology kind) canon chunks were
+   *  injected as a separate block, based on the scene's `setting` field. */
+  setting_canon_count: number;
   provider: string;
   model: string;
 }

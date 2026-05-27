@@ -385,6 +385,27 @@ function PreviewBlock({
         </span>
       </div>
 
+      {(preview.pov_character_name || preview.setting_canon_count > 0) && (
+        <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
+          {preview.pov_character_name && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200"
+              title="Auto-injected from the Character Bible based on the scene's POV"
+            >
+              POV: {preview.pov_character_name}
+            </span>
+          )}
+          {preview.setting_canon_count > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+              title="Location/Cosmology canon chunks matched against the scene's setting field"
+            >
+              Setting match: {preview.setting_canon_count}
+            </span>
+          )}
+        </div>
+      )}
+
       {preview.drift_blocks_send && (
         <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
           <div className="flex items-start gap-2">
