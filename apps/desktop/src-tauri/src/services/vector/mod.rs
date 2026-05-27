@@ -13,7 +13,7 @@ mod json_store;
 pub use json_store::JsonVectorStore;
 
 use crate::error::Result;
-use crate::models::{CanonChunk, ChunkRef, ChunkSensitivity};
+use crate::models::{CanonChunk, CanonKind, ChunkRef, ChunkSensitivity};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -29,6 +29,19 @@ pub trait VectorStore: Send + Sync {
         &self,
         project_id: &str,
         query: &[f32],
+        k: usize,
+        respect_do_not_send: bool,
+    ) -> Result<Vec<ChunkRef>>;
+
+    /// Same as `search` but restricts the candidate set to chunks whose
+    /// `kind` is in `kinds`. Used by structural retrieval (e.g. "pull
+    /// location chunks for this scene's setting"). An empty `kinds`
+    /// slice matches nothing.
+    async fn search_by_kind(
+        &self,
+        project_id: &str,
+        query: &[f32],
+        kinds: &[CanonKind],
         k: usize,
         respect_do_not_send: bool,
     ) -> Result<Vec<ChunkRef>>;

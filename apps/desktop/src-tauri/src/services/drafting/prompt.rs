@@ -2,6 +2,7 @@
 //!
 //! Tested in isolation against synthetic beats / scenes / canon chunks.
 
+use crate::models::brain::Character;
 use crate::models::canon::ChunkRef;
 use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
@@ -31,6 +32,18 @@ pub struct PromptInputs<'a> {
     /// retrieval relevance. The assembler does NOT re-filter — it trusts
     /// the orchestrator to have done that already.
     pub canon: &'a [ChunkRef],
+
+    /// Setting-scoped canon excerpts retrieved by matching the scene's
+    /// `setting` field against location-kind chunks. Disjoint from
+    /// `canon` — the orchestrator de-duplicates by chunk id before
+    /// splitting into these two slots.
+    pub setting_canon: &'a [ChunkRef],
+
+    /// The Character Bible entry that matched the scene's `pov` (by name
+    /// or alias). When present, its motivation / voice / arc are injected
+    /// as a dedicated context block so the model has structured info
+    /// about the POV character beyond the scene's free-form POV string.
+    pub pov_character: Option<&'a Character>,
 
     /// Reference style passages (voice anchors). Each is `(label, text)`.
     /// Already filtered to enabled pins, ordered by weight, possibly
@@ -160,6 +173,57 @@ fn build_user_message(inputs: &PromptInputs<'_>, included: &mut Vec<IncludedCate
             buf.push_str(&format!("Your notes for this beat: {summary}\n"));
         }
         buf.push('\n');
+    }
+
+    // 3.5 POV character bio (structural) -------------------------------
+    if let Some(c) = inputs.pov_character {
+        included.push(IncludedCategory::CharacterBibleEntry);
+        buf.push_str(&format!("# POV character: {}", c.name));
+        if !c.aliases.is_empty() {
+            buf.push_str(&format!(" ({})", c.aliases.join(", ")));
+        }
+        buf.push('\n');
+        if !c.arc_one_liner.trim().is_empty() {
+            buf.push_str(&format!("- Arc: {}\n", c.arc_one_liner.trim()));
+        }
+        if !c.motivation.trim().is_empty() {
+            buf.push_str(&format!("- Motivation: {}\n", c.motivation.trim()));
+        }
+        if !c.voice_notes.trim().is_empty() {
+            buf.push_str(&format!("- Voice: {}\n", c.voice_notes.trim()));
+        }
+        // `secrets` is the spoiler kill-switch. Honor `secrets_do_not_send`
+        // (default true) — if the user explicitly opted them in, we can
+        // include them, but the default is to redact.
+        if !c.secrets.trim().is_empty() && !c.secrets_do_not_send {
+            buf.push_str(&format!(
+                "- Secrets (user opted in): {}\n",
+                c.secrets.trim()
+            ));
+        }
+        buf.push('\n');
+    }
+
+    // 3.6 Setting-scoped canon (structural) ----------------------------
+    if !inputs.setting_canon.is_empty() {
+        included.push(IncludedCategory::SettingCanon);
+        buf.push_str("# Setting reference\n");
+        buf.push_str(
+            "These describe the location the scene takes place in. Anchor sensory detail here.\n\n",
+        );
+        for c in inputs.setting_canon {
+            let crumb = if c.headings.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", c.headings.join(" › "))
+            };
+            buf.push_str(&format!(
+                "## {}{}\n\n{}\n\n",
+                short_doc_label(c),
+                crumb,
+                trim_for_prompt(&c.text, 1_400),
+            ));
+        }
     }
 
     // 4. Scene context (micro) -----------------------------------------
@@ -437,6 +501,8 @@ mod tests {
             prior_text: "The wind tore at his hair. Kaelan shielded his eyes against the dawn.",
             selection: None,
             canon: std::slice::from_ref(&chunk),
+            setting_canon: &[],
+            pov_character: None,
             voice_anchors: &anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -478,6 +544,8 @@ mod tests {
             prior_text: "Some preceding paragraphs that should NOT appear in the prompt.",
             selection: Some("He felt a feeling of dread."),
             canon: &[],
+            setting_canon: &[],
+            pov_character: None,
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -501,6 +569,8 @@ mod tests {
             prior_text: "",
             selection: Some("The wind blew. The boy was sad."),
             canon: &[],
+            setting_canon: &[],
+            pov_character: None,
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -528,6 +598,8 @@ mod tests {
             prior_text: "",
             selection: None,
             canon: &[],
+            setting_canon: &[],
+            pov_character: None,
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -549,6 +621,8 @@ mod tests {
             prior_text: "",
             selection: None,
             canon: std::slice::from_ref(&chunk),
+            setting_canon: &[],
+            pov_character: None,
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -580,5 +654,94 @@ mod tests {
         let tail = tail_excerpt(s, 30);
         assert!(tail.starts_with("…"));
         assert!(tail.contains("third paragraph"));
+    }
+
+    #[test]
+    fn pov_character_bio_renders_when_supplied() {
+        let scene = fake_scene();
+        let mut character = Character::fresh("p1", "Kaelan");
+        character.aliases = vec!["Kael".into()];
+        character.arc_one_liner = "From runaway to reluctant leader.".into();
+        character.motivation = "Avenge his father.".into();
+        character.voice_notes = "Clipped, image-led, dry.".into();
+        character.secrets = "Is the heir of the Hollow King.".into();
+        character.secrets_do_not_send = true;
+
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: Some(&character),
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# POV character: Kaelan (Kael)"));
+        assert!(user.contains("From runaway to reluctant leader"));
+        assert!(user.contains("Avenge his father"));
+        assert!(user.contains("Clipped, image-led, dry"));
+        // Secrets must NOT leak when `secrets_do_not_send` is true.
+        assert!(!user.contains("Hollow King"));
+        assert!(assembled
+            .included
+            .contains(&IncludedCategory::CharacterBibleEntry));
+    }
+
+    #[test]
+    fn pov_character_secrets_only_render_when_user_opted_in() {
+        let scene = fake_scene();
+        let mut character = Character::fresh("p1", "Kaelan");
+        character.secrets = "Hidden bloodline.".into();
+        character.secrets_do_not_send = false; // user explicitly opted in
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: Some(&character),
+            voice_anchors: &[],
+        };
+        let user = &assemble_messages(&inputs).messages[1].content;
+        assert!(user.contains("Hidden bloodline"));
+        assert!(user.contains("user opted in"));
+    }
+
+    #[test]
+    fn setting_canon_renders_as_its_own_section() {
+        let scene = fake_scene();
+        let mut chunk = fake_chunk();
+        chunk.text = "Lake Tarn — cold mirror at the western edge.".into();
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: std::slice::from_ref(&chunk),
+            pov_character: None,
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# Setting reference"));
+        assert!(user.contains("Lake Tarn"));
+        assert!(assembled.included.contains(&IncludedCategory::SettingCanon));
     }
 }

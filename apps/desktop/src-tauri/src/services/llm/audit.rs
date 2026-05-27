@@ -19,7 +19,14 @@ use std::sync::Mutex;
 pub enum IncludedCategory {
     SceneCard,
     BeatDescription,
+    /// Free-form POV string declared on the scene (e.g. "Kaelan, 3rd-limited").
     CharacterPov,
+    /// Structured Character Bible entry matched by POV name + aliases.
+    /// Distinct from `CharacterPov` because the Bible carries motivation,
+    /// voice, arc, etc. that the scene's POV string doesn't.
+    CharacterBibleEntry,
+    /// Setting-kind canon chunk(s) matched by the scene's `setting` value.
+    SettingCanon,
     RecentParagraphs,
     CanonTopK,
     ReferencePins,

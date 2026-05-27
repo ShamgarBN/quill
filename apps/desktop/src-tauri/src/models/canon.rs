@@ -75,6 +75,11 @@ pub struct CanonChunk {
     /// Defaulted in serde for backward compat with v0.2 indices written
     /// before this field existed.
     pub source_path: String,
+    /// Mirrored from the document at ingest time. Lets retrieval filter by
+    /// kind (e.g. "give me location chunks for this scene's setting")
+    /// without joining back to a separate document index.
+    /// Serde-defaults to `Lore` for v0.2 chunks that pre-date this field.
+    pub kind: CanonKind,
 }
 
 /// What retrieval returns: the chunk itself plus its similarity score.

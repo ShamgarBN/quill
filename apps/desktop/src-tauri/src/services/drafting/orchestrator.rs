@@ -3,8 +3,10 @@
 //! provider, and the audit log.
 
 use crate::error::{QuillError, Result};
-use crate::models::canon::ChunkRef;
+use crate::models::brain::Character;
+use crate::models::canon::{CanonKind, ChunkRef};
 use crate::models::structure::{Beat, Scene};
+use crate::services::brain::CharacterStore;
 use crate::services::canon::IngestService;
 use crate::services::drafting::prompt::{assemble_messages, PromptInputs};
 use crate::services::llm::{
@@ -84,6 +86,11 @@ pub struct DraftPreview {
     /// True if `current_drift >= DRIFT_GATE_THRESHOLD`.
     pub drift_blocks_send: bool,
     pub canon_chunks: Vec<ChunkRef>,
+    /// Name of the Character Bible entry matched by the scene's POV, if any.
+    /// `None` when the scene has no POV set or no matching character exists.
+    pub pov_character_name: Option<String>,
+    /// Number of setting-scoped canon chunks injected as a separate block.
+    pub setting_canon_count: u32,
     pub provider: String,
     pub model: String,
 }
@@ -126,6 +133,8 @@ impl<'a> DraftingService<'a> {
             beat_description,
             prior_text,
             canon_chunks,
+            setting_canon,
+            pov_character,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -149,6 +158,8 @@ impl<'a> DraftingService<'a> {
             prior_text: &prior_text,
             selection: req.selection.as_deref(),
             canon: &canon_chunks,
+            setting_canon: &setting_canon,
+            pov_character: pov_character.as_ref(),
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -161,6 +172,8 @@ impl<'a> DraftingService<'a> {
             current_drift,
             drift_blocks_send,
             canon_chunks,
+            pov_character_name: pov_character.as_ref().map(|c| c.name.clone()),
+            setting_canon_count: setting_canon.len() as u32,
             provider: chat_provider.provider_id().to_string(),
             model: chat_provider.model_id().to_string(),
         })
@@ -181,6 +194,8 @@ impl<'a> DraftingService<'a> {
             beat_description,
             prior_text,
             canon_chunks,
+            setting_canon,
+            pov_character,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -214,6 +229,8 @@ impl<'a> DraftingService<'a> {
             prior_text: &prior_text,
             selection: req.selection.as_deref(),
             canon: &canon_chunks,
+            setting_canon: &setting_canon,
+            pov_character: pov_character.as_ref(),
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -348,6 +365,61 @@ impl<'a> DraftingService<'a> {
                 None
             };
 
+        // POV character lookup: match the scene's `pov` string against
+        // every character's name + aliases (case-insensitive). The match
+        // succeeds when ANY term is a substring of the POV string, so a
+        // scene POV of "Kaelan, 3rd-limited" still matches a character
+        // named "Kaelan". First match wins; order matches CharacterStore::list.
+        let pov_character: Option<Character> = if let Some(pov_raw) = scene
+            .pov
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let pov_lower = pov_raw.to_lowercase();
+            let characters = CharacterStore::new(self.projects).list(&req.project_id)?;
+            characters.into_iter().find(|c| {
+                c.match_terms()
+                    .any(|t| !t.trim().is_empty() && pov_lower.contains(&t.to_lowercase()))
+            })
+        } else {
+            None
+        };
+
+        // Setting-scoped canon: when the scene declares a setting, embed
+        // that string and pull the top-2 location / cosmology chunks that
+        // match. De-duplicate against `canon_chunks` (the main semantic
+        // pool) so we don't double-budget the same text.
+        let setting_canon: Vec<ChunkRef> = if let Some(setting) = scene
+            .setting
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let embeds = self.embedder.embed_batch(&[setting]).await?;
+            if let Some(q_vec) = embeds.into_iter().next() {
+                let raw = self
+                    .vectors
+                    .search_by_kind(
+                        &req.project_id,
+                        &q_vec,
+                        &[CanonKind::Location, CanonKind::Cosmology],
+                        2,
+                        true,
+                    )
+                    .await?;
+                let already: std::collections::HashSet<&str> =
+                    canon_chunks.iter().map(|c| c.id.as_str()).collect();
+                raw.into_iter()
+                    .filter(|c| !already.contains(c.id.as_str()))
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
         Ok(DraftContext {
             scene,
             beat,
@@ -355,6 +427,8 @@ impl<'a> DraftingService<'a> {
             beat_description,
             prior_text,
             canon_chunks,
+            setting_canon,
+            pov_character,
             voice_anchors,
             current_drift,
         })
@@ -369,6 +443,8 @@ struct DraftContext {
     beat_description: Option<String>,
     prior_text: String,
     canon_chunks: Vec<ChunkRef>,
+    setting_canon: Vec<ChunkRef>,
+    pov_character: Option<Character>,
     voice_anchors: Vec<(String, String)>,
     current_drift: Option<f32>,
 }
@@ -466,6 +542,7 @@ mod tests {
             word_count: 14,
             sensitivity: ChunkSensitivity::Public,
             source_path: String::new(),
+            kind: CanonKind::Lore,
         };
         // Mock embedder is deterministic — embedding the chunk text gives a
         // vector that the same query will retrieve.

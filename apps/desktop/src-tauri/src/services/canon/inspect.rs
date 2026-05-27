@@ -162,6 +162,7 @@ mod tests {
             word_count: words,
             sensitivity,
             source_path: source.into(),
+            kind: crate::models::CanonKind::Lore,
         }
     }
 
