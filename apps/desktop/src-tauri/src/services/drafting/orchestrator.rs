@@ -3,10 +3,10 @@
 //! provider, and the audit log.
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::Character;
+use crate::models::brain::{Character, Idea};
 use crate::models::canon::{CanonKind, ChunkRef};
 use crate::models::structure::{Beat, Scene};
-use crate::services::brain::CharacterStore;
+use crate::services::brain::{CharacterStore, IdeaStore};
 use crate::services::canon::IngestService;
 use crate::services::drafting::prompt::{assemble_messages, PromptInputs};
 use crate::services::llm::{
@@ -91,6 +91,8 @@ pub struct DraftPreview {
     pub pov_character_name: Option<String>,
     /// Number of setting-scoped canon chunks injected as a separate block.
     pub setting_canon_count: u32,
+    /// Number of Idea Park entries auto-matched by tag and included.
+    pub idea_count: u32,
     pub provider: String,
     pub model: String,
 }
@@ -135,6 +137,7 @@ impl<'a> DraftingService<'a> {
             canon_chunks,
             setting_canon,
             pov_character,
+            ideas,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -160,6 +163,7 @@ impl<'a> DraftingService<'a> {
             canon: &canon_chunks,
             setting_canon: &setting_canon,
             pov_character: pov_character.as_ref(),
+            ideas: &ideas,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -174,6 +178,7 @@ impl<'a> DraftingService<'a> {
             canon_chunks,
             pov_character_name: pov_character.as_ref().map(|c| c.name.clone()),
             setting_canon_count: setting_canon.len() as u32,
+            idea_count: ideas.len() as u32,
             provider: chat_provider.provider_id().to_string(),
             model: chat_provider.model_id().to_string(),
         })
@@ -196,6 +201,7 @@ impl<'a> DraftingService<'a> {
             canon_chunks,
             setting_canon,
             pov_character,
+            ideas,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -231,6 +237,7 @@ impl<'a> DraftingService<'a> {
             canon: &canon_chunks,
             setting_canon: &setting_canon,
             pov_character: pov_character.as_ref(),
+            ideas: &ideas,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -420,6 +427,24 @@ impl<'a> DraftingService<'a> {
             Vec::new()
         };
 
+        // Idea Park: pull up to 5 ideas whose tags target the active
+        // beat / scene / POV. The store is the source of truth for the
+        // `do_not_send` filter.
+        let beat_tag = scene.beat_id.map(|b| b.as_slug().to_string());
+        let pov_name = scene
+            .pov
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+        let ideas = IdeaStore::new(self.projects).relevant_for_draft(
+            &req.project_id,
+            beat_tag.as_deref(),
+            Some(scene.id.as_str()),
+            pov_name.as_deref(),
+            5,
+        )?;
+
         Ok(DraftContext {
             scene,
             beat,
@@ -429,6 +454,7 @@ impl<'a> DraftingService<'a> {
             canon_chunks,
             setting_canon,
             pov_character,
+            ideas,
             voice_anchors,
             current_drift,
         })
@@ -445,6 +471,7 @@ struct DraftContext {
     canon_chunks: Vec<ChunkRef>,
     setting_canon: Vec<ChunkRef>,
     pov_character: Option<Character>,
+    ideas: Vec<Idea>,
     voice_anchors: Vec<(String, String)>,
     current_drift: Option<f32>,
 }

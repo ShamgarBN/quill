@@ -2,7 +2,7 @@
 //!
 //! Tested in isolation against synthetic beats / scenes / canon chunks.
 
-use crate::models::brain::Character;
+use crate::models::brain::{Character, Idea};
 use crate::models::canon::ChunkRef;
 use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
@@ -44,6 +44,10 @@ pub struct PromptInputs<'a> {
     /// as a dedicated context block so the model has structured info
     /// about the POV character beyond the scene's free-form POV string.
     pub pov_character: Option<&'a Character>,
+
+    /// Idea Park entries whose tags target the active draft (by beat,
+    /// scene, or POV). Already filtered to non-`do_not_send` items.
+    pub ideas: &'a [Idea],
 
     /// Reference style passages (voice anchors). Each is `(label, text)`.
     /// Already filtered to enabled pins, ordered by weight, possibly
@@ -200,6 +204,26 @@ fn build_user_message(inputs: &PromptInputs<'_>, included: &mut Vec<IncludedCate
                 "- Secrets (user opted in): {}\n",
                 c.secrets.trim()
             ));
+        }
+        buf.push('\n');
+    }
+
+    // 3.55 Idea Park (capture-pile guidance) ---------------------------
+    if !inputs.ideas.is_empty() {
+        included.push(IncludedCategory::IdeaPark);
+        buf.push_str("# Capture pile (writer's standing ideas)\n");
+        buf.push_str(
+            "These are notes the writer has stashed for this scene. \
+             Treat as suggestions, not facts — weave in if they fit, ignore if they don't.\n\n",
+        );
+        for idea in inputs.ideas {
+            let text = idea.text.trim();
+            if text.is_empty() {
+                continue;
+            }
+            buf.push_str("- ");
+            buf.push_str(&trim_for_prompt(text, 400));
+            buf.push('\n');
         }
         buf.push('\n');
     }
@@ -503,6 +527,7 @@ mod tests {
             canon: std::slice::from_ref(&chunk),
             setting_canon: &[],
             pov_character: None,
+            ideas: &[],
             voice_anchors: &anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -546,6 +571,7 @@ mod tests {
             canon: &[],
             setting_canon: &[],
             pov_character: None,
+            ideas: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -571,6 +597,7 @@ mod tests {
             canon: &[],
             setting_canon: &[],
             pov_character: None,
+            ideas: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -600,6 +627,7 @@ mod tests {
             canon: &[],
             setting_canon: &[],
             pov_character: None,
+            ideas: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -623,6 +651,7 @@ mod tests {
             canon: std::slice::from_ref(&chunk),
             setting_canon: &[],
             pov_character: None,
+            ideas: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -679,6 +708,7 @@ mod tests {
             canon: &[],
             setting_canon: &[],
             pov_character: Some(&character),
+            ideas: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -712,11 +742,41 @@ mod tests {
             canon: &[],
             setting_canon: &[],
             pov_character: Some(&character),
+            ideas: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
         assert!(user.contains("Hidden bloodline"));
         assert!(user.contains("user opted in"));
+    }
+
+    #[test]
+    fn ideas_render_as_bulleted_capture_pile() {
+        let scene = fake_scene();
+        let idea1 = Idea::fresh("p1", "Kaelan flinches at fire — keep the trigger small");
+        let idea2 = Idea::fresh("p1", "Lake Tarn reflects no stars after the dragon falls");
+        let ideas = vec![idea1, idea2];
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: None,
+            ideas: &ideas,
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# Capture pile"));
+        assert!(user.contains("- Kaelan flinches at fire"));
+        assert!(user.contains("- Lake Tarn reflects"));
+        assert!(assembled.included.contains(&IncludedCategory::IdeaPark));
     }
 
     #[test]
@@ -736,6 +796,7 @@ mod tests {
             canon: &[],
             setting_canon: std::slice::from_ref(&chunk),
             pov_character: None,
+            ideas: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);

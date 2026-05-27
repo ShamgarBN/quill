@@ -385,7 +385,9 @@ function PreviewBlock({
         </span>
       </div>
 
-      {(preview.pov_character_name || preview.setting_canon_count > 0) && (
+      {(preview.pov_character_name ||
+        preview.setting_canon_count > 0 ||
+        preview.idea_count > 0) && (
         <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
           {preview.pov_character_name && (
             <span
@@ -401,6 +403,14 @@ function PreviewBlock({
               title="Location/Cosmology canon chunks matched against the scene's setting field"
             >
               Setting match: {preview.setting_canon_count}
+            </span>
+          )}
+          {preview.idea_count > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+              title="Idea Park entries tagged for this beat / scene / POV"
+            >
+              Ideas: {preview.idea_count}
             </span>
           )}
         </div>

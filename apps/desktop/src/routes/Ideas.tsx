@@ -154,6 +154,13 @@ export function IdeasView(): JSX.Element {
               Add
             </button>
           </div>
+          <p className="text-[11px] text-ink-faint">
+            Special tags surface this idea in AI drafts:{" "}
+            <code className="text-ink-muted">beat:catalyst</code>,{" "}
+            <code className="text-ink-muted">pov:kaelan</code>,{" "}
+            <code className="text-ink-muted">scene:&lt;id&gt;</code>. Mark do-not-send
+            (the eye icon on a saved idea) to keep an idea local.
+          </p>
         </div>
       </section>
 
