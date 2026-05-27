@@ -58,6 +58,17 @@ export interface VaultRule {
   sensitivity: ChunkSensitivity;
 }
 
+export interface DocSummary {
+  doc_id: string;
+  source_path: string;
+  chunk_count: number;
+  word_count: number;
+  sensitivity: ChunkSensitivity;
+  mixed_sensitivity: boolean;
+  exists_on_disk: boolean;
+  in_vault: boolean;
+}
+
 export interface WatchStatus {
   project_id: string;
   vault_path: string;

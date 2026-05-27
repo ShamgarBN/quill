@@ -21,6 +21,7 @@ import type {
   CompileOptions,
   CompileReport,
   CrossLink,
+  DocSummary,
   DraftPreview,
   DraftRequest,
   DraftSuggestion,
@@ -146,6 +147,26 @@ export const canonWatchStatus = (projectId: string): Promise<WatchStatus | null>
  *  current policy to the active watcher if any. */
 export const canonReapplyRules = (projectId: string): Promise<number> =>
   invoke<number>("canon_reapply_rules", { projectId });
+
+// ---------- Corpus inspector (Phase 5.x+) ----------
+
+export const canonListDocuments = (projectId: string): Promise<DocSummary[]> =>
+  invoke<DocSummary[]>("canon_list_documents", { projectId });
+
+export const canonDeleteDocument = (
+  projectId: string,
+  docId: string,
+): Promise<number> => invoke<number>("canon_delete_document", { projectId, docId });
+
+export const canonPruneMissing = (projectId: string): Promise<number> =>
+  invoke<number>("canon_prune_missing", { projectId });
+
+export const canonRetagDocuments = (
+  projectId: string,
+  docIds: string[],
+  sensitivity: ChunkSensitivity,
+): Promise<number> =>
+  invoke<number>("canon_retag_documents", { projectId, docIds, sensitivity });
 
 // ---------- LLM ----------
 

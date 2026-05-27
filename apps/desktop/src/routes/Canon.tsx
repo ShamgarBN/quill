@@ -15,9 +15,12 @@ import {
   Eye,
   EyeOff,
   FileText,
+  FileWarning,
   FolderOpen,
+  FolderSearch,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   Shield,
   ShieldOff,
@@ -30,6 +33,7 @@ import type {
   CanonKind,
   ChunkRef,
   ChunkSensitivity,
+  DocSummary,
   IngestReport,
   VaultRule,
   WatchStatus,
@@ -185,6 +189,17 @@ export function CanonView(): JSX.Element {
             overrides folder rules. Anything unmatched falls back to the default below.
           </p>
           <VaultPrivacyCard />
+        </section>
+
+        <section>
+          <SectionTitle>Indexed documents</SectionTitle>
+          <p className="mt-1 max-w-prose text-xs text-ink-faint">
+            Everything currently in your project's canon index — what the AI can pull
+            from when drafting. Use this to audit sensitivity before turning on a cloud
+            provider, bulk-retag a batch of files, or prune chunks for notes you've
+            deleted from your vault.
+          </p>
+          <CorpusInspector projectId={project.id} />
         </section>
 
         <section>
@@ -399,6 +414,384 @@ function ReportRow({ report }: { report: IngestReport }): JSX.Element {
         <div>{(report.bytes_read / 1024).toFixed(1)} KB</div>
       </div>
     </div>
+  );
+}
+
+type SensFilter = "all" | ChunkSensitivity;
+
+const SENSITIVITY_TONE: Record<ChunkSensitivity, string> = {
+  public: "text-sky-700 dark:text-sky-300",
+  spoiler: "text-amber-700 dark:text-amber-300",
+  do_not_send: "text-rose-700 dark:text-rose-300",
+};
+
+const SENSITIVITY_LABEL: Record<ChunkSensitivity, string> = {
+  public: "Public",
+  spoiler: "Spoiler",
+  do_not_send: "Do not send",
+};
+
+function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
+  const [docs, setDocs] = useState<DocSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [filter, setFilter] = useState<SensFilter>("all");
+  const [showMissingOnly, setShowMissingOnly] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkTarget, setBulkTarget] = useState<ChunkSensitivity>("do_not_send");
+  const [status, setStatus] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const list = await ipc.canonListDocuments(projectId);
+      setDocs(list);
+      // Drop stale selections.
+      setSelected((curr) => {
+        const valid = new Set(list.map((d) => d.doc_id));
+        const next = new Set<string>();
+        curr.forEach((id) => valid.has(id) && next.add(id));
+        return next;
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const filtered = useMemo(
+    () =>
+      docs.filter((d) => {
+        if (filter !== "all" && d.sensitivity !== filter) return false;
+        if (showMissingOnly && d.exists_on_disk) return false;
+        return true;
+      }),
+    [docs, filter, showMissingOnly],
+  );
+
+  const totalChunks = docs.reduce((acc, d) => acc + d.chunk_count, 0);
+  const totalWords = docs.reduce((acc, d) => acc + d.word_count, 0);
+  const missingCount = docs.filter((d) => !d.exists_on_disk).length;
+
+  const toggleOne = (docId: string): void => {
+    setSelected((curr) => {
+      const next = new Set(curr);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+  const toggleAll = (): void => {
+    setSelected((curr) => {
+      const allShown = new Set(filtered.map((d) => d.doc_id));
+      const allAlreadySelected =
+        filtered.length > 0 && filtered.every((d) => curr.has(d.doc_id));
+      if (allAlreadySelected) {
+        const next = new Set(curr);
+        allShown.forEach((id) => next.delete(id));
+        return next;
+      }
+      return new Set([...curr, ...allShown]);
+    });
+  };
+
+  const onDelete = async (docId: string): Promise<void> => {
+    if (!window.confirm("Remove this document's chunks from the index?")) return;
+    try {
+      await ipc.canonDeleteDocument(projectId, docId);
+      setStatus("Document removed.");
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onPrune = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        `Prune all docs whose source file no longer exists on disk? (${missingCount} doc${missingCount === 1 ? "" : "s"} affected.)`,
+      )
+    )
+      return;
+    try {
+      const pruned = await ipc.canonPruneMissing(projectId);
+      setStatus(`${pruned} doc${pruned === 1 ? "" : "s"} pruned.`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onBulkRetag = async (): Promise<void> => {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    setStatus(null);
+    try {
+      const changed = await ipc.canonRetagDocuments(
+        projectId,
+        Array.from(selected),
+        bulkTarget,
+      );
+      setStatus(
+        changed > 0
+          ? `Re-tagged ${changed} chunk${changed === 1 ? "" : "s"} → ${SENSITIVITY_LABEL[bulkTarget]}.`
+          : "No chunks needed re-tagging.",
+      );
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 flex flex-col gap-3 rounded-md border border-line-subtle bg-surface-subtle">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-line-subtle px-3 py-2 text-xs">
+        <span className="text-ink-muted">
+          {docs.length} doc{docs.length === 1 ? "" : "s"} · {totalChunks} chunks ·{" "}
+          {totalWords.toLocaleString()} words
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as SensFilter)}
+            className="qinput h-7 px-1.5 text-xs"
+            title="Filter by sensitivity"
+          >
+            <option value="all">All sensitivities</option>
+            <option value="public">Public only</option>
+            <option value="spoiler">Spoiler only</option>
+            <option value="do_not_send">Do not send only</option>
+          </select>
+          <label
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors",
+              showMissingOnly
+                ? "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200"
+                : "border-line-subtle text-ink-faint hover:text-ink",
+            )}
+            title="Show only documents whose source file is missing on disk"
+          >
+            <input
+              type="checkbox"
+              className="hidden"
+              checked={showMissingOnly}
+              onChange={(e) => setShowMissingOnly(e.target.checked)}
+            />
+            <FileWarning className="h-3 w-3" />
+            Missing only ({missingCount})
+          </label>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="qbtn-ghost h-7 w-7 p-0"
+            title="Refresh"
+            aria-label="Refresh document list"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {missingCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void onPrune()}
+              className="qbtn-ghost h-7 px-2 text-xs"
+              title="Delete chunks for files that no longer exist on disk"
+            >
+              <Trash2 className="mr-1 h-3 w-3" /> Prune missing
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-2 border-b border-line-subtle px-3 py-2 text-xs">
+          <span className="font-medium text-ink">{selected.size} selected</span>
+          <span className="text-ink-faint">retag to</span>
+          <select
+            value={bulkTarget}
+            onChange={(e) => setBulkTarget(e.target.value as ChunkSensitivity)}
+            className="qinput h-7 px-1.5 text-xs"
+          >
+            <option value="public">Public</option>
+            <option value="spoiler">Spoiler</option>
+            <option value="do_not_send">Do not send</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => void onBulkRetag()}
+            disabled={bulkBusy}
+            className="qbtn-primary h-7 px-3 text-xs"
+          >
+            {bulkBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+            Apply
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="qbtn-ghost h-7 px-2 text-xs"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Status */}
+      {status && (
+        <div className="px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+          {status}
+        </div>
+      )}
+      {err && (
+        <div className="px-3 py-1.5 text-xs text-rose-700 dark:text-rose-300">
+          {err}
+        </div>
+      )}
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <div className="px-3 py-6 text-center text-xs text-ink-faint">
+          {loading
+            ? "Loading…"
+            : docs.length === 0
+              ? "No documents indexed yet. Ingest a file or connect a vault to begin."
+              : "No documents match this filter."}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 border-b border-line-subtle px-3 py-1.5 text-[10px] uppercase tracking-wide text-ink-faint">
+            <input
+              type="checkbox"
+              checked={
+                filtered.length > 0 && filtered.every((d) => selected.has(d.doc_id))
+              }
+              onChange={toggleAll}
+            />
+            <span className="flex-1">Source</span>
+            <span className="w-20 text-right">Words</span>
+            <span className="w-14 text-right">Chunks</span>
+            <span className="w-24 text-center">Sensitivity</span>
+            <span className="w-16" />
+          </div>
+          <ul className="max-h-[480px] divide-y divide-line-subtle overflow-y-auto">
+            {filtered.map((doc) => (
+              <DocRow
+                key={doc.doc_id}
+                doc={doc}
+                selected={selected.has(doc.doc_id)}
+                onToggle={() => toggleOne(doc.doc_id)}
+                onDelete={() => void onDelete(doc.doc_id)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DocRow({
+  doc,
+  selected,
+  onToggle,
+  onDelete,
+}: {
+  doc: DocSummary;
+  selected: boolean;
+  onToggle: () => void;
+  onDelete: () => void;
+}): JSX.Element {
+  const filename = doc.source_path.split("/").pop() || "(no path)";
+  const parent = doc.source_path
+    .split("/")
+    .slice(0, -1)
+    .join("/")
+    .replace(/^\/Users\/[^/]+/, "~");
+  return (
+    <li
+      className={cn(
+        "group flex items-center gap-2 px-3 py-1.5 text-xs",
+        selected && "bg-accent-subtle",
+        !doc.exists_on_disk && "bg-rose-50/40 dark:bg-rose-900/10",
+      )}
+    >
+      <input type="checkbox" checked={selected} onChange={onToggle} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <FileText className="h-3 w-3 shrink-0 text-ink-faint" />
+          <span className="truncate font-medium text-ink">{filename}</span>
+          {!doc.exists_on_disk && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] text-rose-800 dark:bg-rose-900/30 dark:text-rose-200"
+              title="Source file no longer exists on disk"
+            >
+              <FileWarning className="h-2.5 w-2.5" /> missing
+            </span>
+          )}
+          {doc.mixed_sensitivity && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+              title="Chunks of this document have different sensitivity tags"
+            >
+              mixed
+            </span>
+          )}
+        </div>
+        <div className="truncate text-ink-faint">{parent || "(root)"}</div>
+      </div>
+      <span className="w-20 text-right tabular-nums text-ink-muted">
+        {doc.word_count.toLocaleString()}
+      </span>
+      <span className="w-14 text-right tabular-nums text-ink-muted">
+        {doc.chunk_count}
+      </span>
+      <span
+        className={cn(
+          "w-24 text-center font-medium",
+          SENSITIVITY_TONE[doc.sensitivity],
+        )}
+      >
+        {SENSITIVITY_LABEL[doc.sensitivity]}
+      </span>
+      <div className="flex w-16 items-center justify-end gap-0.5">
+        {doc.source_path && doc.exists_on_disk && (
+          <button
+            type="button"
+            onClick={() =>
+              void ipc.systemRevealPath(doc.source_path).catch(() => undefined)
+            }
+            className="qbtn-ghost h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+            title={`Reveal in Finder · ${doc.source_path}`}
+            aria-label="Reveal in Finder"
+          >
+            <FolderSearch className="h-3 w-3" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          className="qbtn-ghost h-6 w-6 p-0 text-ink-faint opacity-0 group-hover:opacity-100 hover:text-rose-600"
+          title="Remove from index"
+          aria-label="Remove document from index"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </li>
   );
 }
 

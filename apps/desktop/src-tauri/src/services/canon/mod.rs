@@ -16,6 +16,7 @@
 pub mod chunker;
 pub mod extract;
 pub mod ingest;
+pub mod inspect;
 pub mod rules;
 pub mod watch_service;
 pub mod watcher;
@@ -23,5 +24,6 @@ pub mod watcher;
 #[allow(unused_imports)]
 pub use chunker::{chunk_markdown, chunk_plain, Chunk, ChunkOptions};
 pub use ingest::{IngestReport, IngestService};
+pub use inspect::{list_documents, prune_missing, retag_documents, DocSummary};
 pub use rules::{reapply_rules, resolve_sensitivity};
 pub use watch_service::{VaultPolicy, WatchService, WatchStatus};
