@@ -3,7 +3,8 @@
 use crate::error::{QuillError, Result};
 use crate::models::{CanonKind, ChunkRef, ChunkSensitivity};
 use crate::services::canon::{
-    reapply_rules, resolve_sensitivity, IngestReport, IngestService, VaultPolicy, WatchStatus,
+    list_documents, prune_missing, reapply_rules, resolve_sensitivity, retag_documents, DocSummary,
+    IngestReport, IngestService, VaultPolicy, WatchStatus,
 };
 use crate::services::llm::ProviderId;
 use crate::state::AppState;
@@ -177,4 +178,48 @@ pub async fn canon_watch_status(
     project_id: String,
 ) -> Result<Option<WatchStatus>> {
     Ok(state.watches.status(&project_id).await)
+}
+
+// ---------- Corpus inspector ----------
+
+/// List every document in the project's canon index, with per-doc
+/// summary metadata. Used by the corpus inspector UI in the Canon view.
+#[tauri::command]
+pub async fn canon_list_documents(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<DocSummary>> {
+    let project = state.projects.open(&project_id)?;
+    let vault_path = project.vault_path.as_deref().map(Path::new);
+    list_documents(&*state.vectors, &project_id, vault_path).await
+}
+
+/// Remove every chunk belonging to a document. Returns the count of
+/// chunks that were removed (mostly diagnostic).
+#[tauri::command]
+pub async fn canon_delete_document(
+    state: State<'_, AppState>,
+    _project_id: String,
+    doc_id: String,
+) -> Result<u64> {
+    state.vectors.delete_by_doc(&doc_id).await
+}
+
+/// Walk every doc in the project; for any whose source file no longer
+/// exists on disk, delete its chunks. Returns the count of docs pruned.
+#[tauri::command]
+pub async fn canon_prune_missing(state: State<'_, AppState>, project_id: String) -> Result<u64> {
+    prune_missing(&*state.vectors, &project_id).await
+}
+
+/// Bulk-retag every chunk belonging to the given doc ids to a single
+/// sensitivity. Lets the user override rules for specific docs.
+#[tauri::command]
+pub async fn canon_retag_documents(
+    state: State<'_, AppState>,
+    project_id: String,
+    doc_ids: Vec<String>,
+    sensitivity: ChunkSensitivity,
+) -> Result<u64> {
+    retag_documents(&*state.vectors, &project_id, &doc_ids, sensitivity).await
 }
