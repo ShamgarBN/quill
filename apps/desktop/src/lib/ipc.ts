@@ -38,6 +38,7 @@ import type {
   Scene,
   SceneContent,
   ScenePatch,
+  SearchHit,
   Settings,
   SettingsPatch,
   ThemePreference,
@@ -248,6 +249,17 @@ export const manuscriptCompile = (
 
 export const manuscriptTodayProgress = (projectId: string): Promise<TodayProgress> =>
   invoke<TodayProgress>("manuscript_today_progress", { projectId });
+
+export const manuscriptSearch = (
+  projectId: string,
+  query: string,
+  limit?: number,
+): Promise<SearchHit[]> =>
+  invoke<SearchHit[]>("manuscript_search", {
+    projectId,
+    query,
+    limit: limit ?? null,
+  });
 
 // ---------- Voice (reference pins, fingerprint, drift) ----------
 

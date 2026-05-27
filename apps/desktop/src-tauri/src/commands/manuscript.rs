@@ -7,7 +7,8 @@ use crate::error::{QuillError, Result};
 use crate::models::structure::Scene;
 use crate::services::git::GitService;
 use crate::services::manuscript::{
-    CompileOptions, CompileReport, ManuscriptStore, ProgressService, SceneContent, TodayProgress,
+    CompileOptions, CompileReport, ManuscriptStore, ProgressService, SceneContent, SearchHit,
+    TodayProgress,
 };
 use crate::services::structure::StructureStore;
 use crate::state::AppState;
@@ -96,6 +97,21 @@ pub fn manuscript_compile(
     let opts = options.unwrap_or_default();
     let path_buf = output_path.map(PathBuf::from);
     manuscript.compile(&project_id, &scenes, &opts, path_buf.as_deref())
+}
+
+/// Case-insensitive substring search across every scene's prose.
+/// Default limit is 100 hits; the caller can override.
+#[tauri::command]
+pub fn manuscript_search(
+    state: State<'_, AppState>,
+    project_id: String,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<SearchHit>> {
+    let structure = StructureStore::new(&state.projects);
+    let scenes = structure.load_scenes(&project_id)?;
+    let manuscript = ManuscriptStore::new(&state.projects);
+    manuscript.search(&project_id, &scenes, &query, limit.unwrap_or(100))
 }
 
 /// Return today's writing progress for a project. First call of any given

@@ -270,6 +270,15 @@ export interface TodayProgress {
   previous_delta: number | null;
 }
 
+export interface SearchHit {
+  scene_id: string;
+  scene_title: string;
+  scene_order: number;
+  line: number;
+  snippet: string;
+  matched_text: string;
+}
+
 // ---------- Voice (Phase 4) ----------
 
 export interface ReferencePin {

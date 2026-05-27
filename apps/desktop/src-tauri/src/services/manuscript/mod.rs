@@ -19,4 +19,4 @@ mod progress;
 mod store;
 
 pub use progress::{ProgressService, TodayProgress};
-pub use store::{CompileOptions, CompileReport, ManuscriptStore, SceneContent};
+pub use store::{CompileOptions, CompileReport, ManuscriptStore, SceneContent, SearchHit};
