@@ -30,8 +30,10 @@ import {
   Download,
   Loader2,
   Plus,
+  Search,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
@@ -41,6 +43,8 @@ import type {
   DriftReport,
   Scene,
   SceneContent,
+  SceneStatus,
+  SearchHit,
   TodayProgress,
 } from "@/types";
 import { cn } from "@/lib/cn";
@@ -96,6 +100,17 @@ export function ManuscriptView(): JSX.Element {
   const [beatSheet, setBeatSheet] = useState<BeatSheet | null>(null);
   /** Today's writing progress; refreshes after each successful save. */
   const [todayProgress, setTodayProgress] = useState<TodayProgress | null>(null);
+  /** Per-session scene status filter for the rail; hoisted so keyboard
+   *  navigation can respect it. */
+  const [visibleStatuses, setVisibleStatuses] = useState<Set<SceneStatus>>(
+    () => new Set(ALL_STATUSES),
+  );
+  /** Manuscript-wide search overlay: open state + current query + results. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const selectionText =
     selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
@@ -244,7 +259,7 @@ export function ManuscriptView(): JSX.Element {
   }, [save, content, project, hasFingerprint]);
 
   // Manual scene CRUD handlers
-  const onCreateScene = async () => {
+  const onCreateScene = useCallback(async () => {
     if (!project) return;
     try {
       const title = window.prompt("New scene title?")?.trim();
@@ -255,7 +270,7 @@ export function ManuscriptView(): JSX.Element {
     } catch (e) {
       setError(messageOf(e));
     }
-  };
+  }, [project, refreshScenes]);
 
   const onDeleteScene = async (id: string) => {
     if (!project) return;
@@ -273,6 +288,99 @@ export function ManuscriptView(): JSX.Element {
       setError(messageOf(e));
     }
   };
+
+  const toggleStatusFilter = useCallback((st: SceneStatus): void => {
+    setVisibleStatuses((curr) => {
+      const next = new Set(curr);
+      if (next.has(st)) next.delete(st);
+      else next.add(st);
+      // Don't allow empty filter — re-enable all.
+      if (next.size === 0) return new Set(ALL_STATUSES);
+      return next;
+    });
+  }, []);
+
+  // Debounced manuscript-wide search. Fires 250ms after the user stops
+  // typing in the search input. Empty query → empty results, no IPC call.
+  useEffect(() => {
+    if (!project) return;
+    if (!searchOpen) return;
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    const handle = window.setTimeout(() => {
+      void ipc
+        .manuscriptSearch(project.id, q, 100)
+        .then((hits) => {
+          setSearchResults(hits);
+        })
+        .catch(() => {
+          // Non-fatal — leave previous results in place.
+        })
+        .finally(() => {
+          setSearching(false);
+        });
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [project, searchQuery, searchOpen]);
+
+  // Focus the search input whenever the overlay opens.
+  useEffect(() => {
+    if (searchOpen) {
+      // Defer to next tick so the input has actually mounted.
+      window.requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      });
+    }
+  }, [searchOpen]);
+
+  // Scope-aware keyboard shortcuts for the Manuscript view:
+  //   ⌘N → new scene
+  //   ⌘[ / ⌘] → prev / next visible scene
+  // Skip when focus is in a textarea/input/select so we don't intercept
+  // legitimate typing or the editor's own arrow handling.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      const isFormField =
+        tag === "TEXTAREA" ||
+        tag === "INPUT" ||
+        tag === "SELECT" ||
+        (e.target as HTMLElement | null)?.isContentEditable === true;
+      if (e.key === "n" && !isFormField) {
+        e.preventDefault();
+        void onCreateScene();
+        return;
+      }
+      if (e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+      if (e.key === "[" || e.key === "]") {
+        const visible = scenes.filter((s) => visibleStatuses.has(s.status));
+        if (visible.length === 0) return;
+        const idx = activeId ? visible.findIndex((s) => s.id === activeId) : -1;
+        const nextIdx =
+          e.key === "]"
+            ? Math.min(visible.length - 1, idx + 1)
+            : Math.max(0, idx === -1 ? 0 : idx - 1);
+        const target = visible[nextIdx];
+        if (target && target.id !== activeId) {
+          e.preventDefault();
+          setActiveId(target.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // Listing every dep keeps this fresh; onCreateScene is stable enough.
+  }, [scenes, activeId, visibleStatuses, onCreateScene]);
 
   const onReorderScenes = useCallback(
     async (idsInOrder: string[]) => {
@@ -437,6 +545,21 @@ export function ManuscriptView(): JSX.Element {
         </div>
       )}
 
+      {searchOpen && (
+        <SearchOverlay
+          inputRef={searchInputRef}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          results={searchResults}
+          searching={searching}
+          onPick={(hit) => {
+            setActiveId(hit.scene_id);
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
+
       {error && (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
           {error}
@@ -452,6 +575,8 @@ export function ManuscriptView(): JSX.Element {
           onDelete={onDeleteScene}
           onReorder={onReorderScenes}
           beatSheet={beatSheet}
+          visibleStatuses={visibleStatuses}
+          onToggleStatus={toggleStatusFilter}
         />
 
         <div className="flex flex-1 flex-col">
@@ -511,6 +636,15 @@ export function ManuscriptView(): JSX.Element {
 
 // ---------- Scene rail ----------
 
+/** Default: all statuses visible. */
+const ALL_STATUSES: SceneStatus[] = [
+  "outlined",
+  "drafting",
+  "drafted",
+  "revised",
+  "locked",
+];
+
 function SceneRail({
   scenes,
   activeId,
@@ -519,6 +653,8 @@ function SceneRail({
   onDelete,
   onReorder,
   beatSheet,
+  visibleStatuses,
+  onToggleStatus,
 }: {
   scenes: Scene[];
   activeId: string | null;
@@ -527,9 +663,12 @@ function SceneRail({
   onDelete: (id: string) => void;
   onReorder: (idsInOrder: string[]) => void;
   beatSheet: BeatSheet | null;
+  visibleStatuses: Set<SceneStatus>;
+  onToggleStatus: (s: SceneStatus) => void;
 }): JSX.Element {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const filteredScenes = scenes.filter((s) => visibleStatuses.has(s.status));
 
   const onDragStart =
     (id: string) =>
@@ -581,7 +720,10 @@ function SceneRail({
     <aside className="flex w-64 shrink-0 flex-col border-r border-line-subtle bg-surface-subtle">
       <ProgressCard scenes={scenes} beatSheet={beatSheet} />
       <div className="flex items-center justify-between border-b border-line-subtle px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
-        <span>Scenes ({scenes.length})</span>
+        <span>
+          Scenes ({filteredScenes.length}
+          {filteredScenes.length !== scenes.length && ` / ${scenes.length}`})
+        </span>
         <button
           type="button"
           onClick={onCreate}
@@ -591,13 +733,16 @@ function SceneRail({
           <Plus className="h-3.5 w-3.5" /> New
         </button>
       </div>
+      <StatusFilter visible={visibleStatuses} onToggle={onToggleStatus} />
       <div className="flex-1 overflow-y-auto py-1">
-        {scenes.length === 0 ? (
+        {filteredScenes.length === 0 ? (
           <div className="px-3 py-4 text-xs text-ink-faint">
-            No scenes yet. Create one to start writing.
+            {scenes.length === 0
+              ? "No scenes yet. Create one to start writing."
+              : "No scenes match the current filter."}
           </div>
         ) : (
-          scenes.map((s) => (
+          filteredScenes.map((s) => (
             <SceneRow
               key={s.id}
               scene={s}
@@ -615,6 +760,133 @@ function SceneRail({
         )}
       </div>
     </aside>
+  );
+}
+
+function SearchOverlay({
+  inputRef,
+  query,
+  onQueryChange,
+  results,
+  searching,
+  onPick,
+  onClose,
+}: {
+  inputRef: React.RefObject<HTMLInputElement>;
+  query: string;
+  onQueryChange: (q: string) => void;
+  results: SearchHit[];
+  searching: boolean;
+  onPick: (hit: SearchHit) => void;
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <div className="border-b border-line-subtle bg-surface-subtle">
+      <div className="flex items-center gap-2 px-4 py-2">
+        <Search className="h-4 w-4 text-ink-faint" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onClose();
+            } else if (e.key === "Enter" && results[0]) {
+              e.preventDefault();
+              onPick(results[0]);
+            }
+          }}
+          placeholder="Search manuscript… (Esc to close, Enter to jump to first match)"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-ink-faint"
+        />
+        {searching && <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-faint" />}
+        <span className="text-xs text-ink-faint">
+          {results.length} match{results.length === 1 ? "" : "es"}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="qbtn-ghost h-7 w-7 p-0"
+          title="Close search"
+          aria-label="Close search"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {results.length > 0 && (
+        <ul className="max-h-72 divide-y divide-line-subtle overflow-y-auto border-t border-line-subtle">
+          {results.map((hit, i) => (
+            <li key={`${hit.scene_id}-${i}`}>
+              <button
+                type="button"
+                onClick={() => onPick(hit)}
+                className="flex w-full items-baseline gap-3 px-4 py-1.5 text-left text-xs hover:bg-surface-elevated"
+              >
+                <span className="shrink-0 font-medium text-ink-muted">
+                  {String(hit.scene_order + 1).padStart(2, "0")}.{" "}
+                  {hit.scene_title || "Untitled"}
+                </span>
+                <span className="shrink-0 text-ink-faint tabular-nums">
+                  L{hit.line}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink">{hit.snippet}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const STATUS_DOT: Record<SceneStatus, string> = {
+  outlined: "bg-ink-faint",
+  drafting: "bg-amber-500",
+  drafted: "bg-sky-500",
+  revised: "bg-emerald-500",
+  locked: "bg-ink",
+};
+
+const STATUS_LABEL: Record<SceneStatus, string> = {
+  outlined: "Outlined",
+  drafting: "Drafting",
+  drafted: "Drafted",
+  revised: "Revised",
+  locked: "Locked",
+};
+
+function StatusFilter({
+  visible,
+  onToggle,
+}: {
+  visible: Set<SceneStatus>;
+  onToggle: (s: SceneStatus) => void;
+}): JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center gap-1 border-b border-line-subtle px-2 py-1.5">
+      {ALL_STATUSES.map((st) => {
+        const on = visible.has(st);
+        return (
+          <button
+            key={st}
+            type="button"
+            onClick={() => onToggle(st)}
+            title={`${on ? "Hide" : "Show"} ${STATUS_LABEL[st]} scenes`}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors",
+              on
+                ? "border-line-subtle bg-surface text-ink-muted"
+                : "border-line-subtle bg-transparent text-ink-faint opacity-50",
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[st])} />
+            {STATUS_LABEL[st]}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

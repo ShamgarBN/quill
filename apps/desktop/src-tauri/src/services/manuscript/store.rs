@@ -172,6 +172,58 @@ impl<'a> ManuscriptStore<'a> {
         Ok(())
     }
 
+    /// Case-insensitive substring search over every scene's prose. Returns
+    /// up to `max_hits` matches with a ~80-char snippet around each match.
+    ///
+    /// `scenes` must already be in narrative order; the order is preserved
+    /// in the result.
+    pub fn search(
+        &self,
+        project_id: &str,
+        scenes: &[crate::models::structure::Scene],
+        query: &str,
+        max_hits: usize,
+    ) -> Result<Vec<SearchHit>> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let q_lower = q.to_lowercase();
+        let mut hits = Vec::new();
+        for scene in scenes {
+            if hits.len() >= max_hits {
+                break;
+            }
+            let content = match self.load_scene(project_id, &scene.id, scene.order) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            if content.text.is_empty() {
+                continue;
+            }
+            let lower = content.text.to_lowercase();
+            let mut start = 0;
+            while let Some(rel) = lower[start..].find(&q_lower) {
+                if hits.len() >= max_hits {
+                    break;
+                }
+                let abs = start + rel;
+                let line = 1 + content.text[..abs].matches('\n').count() as u32;
+                let snippet = make_snippet(&content.text, abs, abs + q.len(), 60);
+                hits.push(SearchHit {
+                    scene_id: scene.id.clone(),
+                    scene_title: scene.title.clone(),
+                    scene_order: scene.order,
+                    line,
+                    snippet,
+                    matched_text: content.text[abs..abs + q.len()].to_string(),
+                });
+                start = abs + q.len().max(1);
+            }
+        }
+        Ok(hits)
+    }
+
     /// Concatenate every scene in narrative order into one Markdown stream
     /// and (optionally) write it to disk.
     ///
@@ -253,6 +305,96 @@ pub struct CompileReport {
     pub word_count: u32,
     pub scene_count: u32,
     pub output_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchHit {
+    pub scene_id: String,
+    pub scene_title: String,
+    pub scene_order: u32,
+    /// 1-based line number where the match begins.
+    pub line: u32,
+    /// ~80-char excerpt around the match, with the matched text intact.
+    pub snippet: String,
+    /// The exact matched substring (preserves the original case of the
+    /// scene text, not the query's case).
+    pub matched_text: String,
+}
+
+/// Build a snippet centered on the match. Boundaries are word-aware: we
+/// extend forward and backward from the match by ~`pad` characters, then
+/// shrink to the nearest whitespace so the snippet doesn't cut mid-word.
+fn make_snippet(text: &str, match_start: usize, match_end: usize, pad: usize) -> String {
+    // Work in char indices so we don't slice in the middle of a UTF-8 code point.
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let to_char_idx = |b: usize| -> usize {
+        chars
+            .iter()
+            .position(|(i, _)| *i >= b)
+            .unwrap_or(chars.len())
+    };
+    let m_start_ci = to_char_idx(match_start);
+    let m_end_ci = to_char_idx(match_end);
+    let lo = m_start_ci.saturating_sub(pad);
+    let hi = (m_end_ci + pad).min(chars.len());
+
+    // Pull the byte offsets back out.
+    let lo_b = chars.get(lo).map(|(b, _)| *b).unwrap_or(0);
+    let hi_b = chars.get(hi).map(|(b, _)| *b).unwrap_or(text.len());
+    let raw = &text[lo_b..hi_b];
+
+    // Trim to nearest whitespace boundaries so we don't cut mid-word.
+    let trimmed = trim_to_word_bounds(raw);
+    let mut out = String::new();
+    if lo_b > 0 {
+        out.push('…');
+    }
+    // Collapse internal newlines to spaces so the snippet renders on one line.
+    for c in trimmed.chars() {
+        if c == '\n' || c == '\r' {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    if hi_b < text.len() {
+        out.push('…');
+    }
+    out
+}
+
+fn trim_to_word_bounds(s: &str) -> &str {
+    // Trim leading characters up to (but not including) the first whitespace
+    // boundary if we're clearly mid-word. Mirror at the end.
+    let bytes = s.as_bytes();
+    let mut start = 0;
+    if !bytes.is_empty() && !s.starts_with(char::is_whitespace) {
+        // Walk forward to the first whitespace, then past it, but cap.
+        if let Some((idx, _)) = s.char_indices().find(|(_, c)| c.is_whitespace()) {
+            // Only trim if it's a small step — don't lose half the snippet.
+            if idx <= 20 {
+                start = idx + 1;
+            }
+        }
+    }
+    let mut end = s.len();
+    if !s.ends_with(char::is_whitespace) {
+        // Walk backward to the last whitespace, only if it's near the end.
+        if let Some(idx) = s
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map(|(i, _)| i)
+        {
+            if s.len() - idx <= 20 {
+                end = idx;
+            }
+        }
+    }
+    if start >= end {
+        return s;
+    }
+    s[start..end].trim()
 }
 
 fn scene_id_is_safe(id: &str) -> bool {
@@ -428,6 +570,82 @@ mod tests {
             .unwrap();
         assert!(report.markdown.contains("## The Beginning\n\nBody one."));
         assert!(report.markdown.contains("## The Middle\n\nBody two."));
+    }
+
+    #[test]
+    fn search_returns_hits_per_scene_in_order() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store
+            .save_scene(&pid, "scn_a", 0, "The dragon flew over the lake.")
+            .unwrap();
+        store
+            .save_scene(&pid, "scn_b", 1, "No dragons here.")
+            .unwrap();
+        store
+            .save_scene(&pid, "scn_c", 2, "Dragon. Dragon. Dragon.")
+            .unwrap();
+
+        let scenes = vec![
+            scene(0, "scn_a", "A"),
+            scene(1, "scn_b", "B"),
+            scene(2, "scn_c", "C"),
+        ];
+        let hits = store.search(&pid, &scenes, "dragon", 100).unwrap();
+        assert_eq!(hits.len(), 1 + 1 + 3);
+        assert_eq!(hits[0].scene_id, "scn_a");
+        assert_eq!(hits[1].scene_id, "scn_b");
+        assert_eq!(hits.iter().filter(|h| h.scene_id == "scn_c").count(), 3);
+        // All matched_text values preserve original casing.
+        assert!(hits
+            .iter()
+            .all(|h| h.matched_text.to_lowercase() == "dragon"));
+    }
+
+    #[test]
+    fn search_is_case_insensitive_and_respects_limit() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store
+            .save_scene(&pid, "scn_a", 0, "DRAGON dragon Dragon DrAgOn")
+            .unwrap();
+        let scenes = vec![scene(0, "scn_a", "A")];
+        let all = store.search(&pid, &scenes, "DRAGON", 100).unwrap();
+        assert_eq!(all.len(), 4);
+        let limited = store.search(&pid, &scenes, "dragon", 2).unwrap();
+        assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn search_empty_query_returns_no_hits() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store.save_scene(&pid, "scn_a", 0, "anything").unwrap();
+        let scenes = vec![scene(0, "scn_a", "A")];
+        assert!(store.search(&pid, &scenes, "", 100).unwrap().is_empty());
+        assert!(store.search(&pid, &scenes, "   ", 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_snippet_contains_match() {
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store
+            .save_scene(
+                &pid,
+                "scn_a",
+                0,
+                "Once upon a time there was a small village by the lake where dragons would gather every spring to drink the cold water.",
+            )
+            .unwrap();
+        let scenes = vec![scene(0, "scn_a", "A")];
+        let hits = store.search(&pid, &scenes, "dragons", 1).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(
+            hits[0].snippet.to_lowercase().contains("dragons"),
+            "snippet '{}' missing match",
+            hits[0].snippet
+        );
     }
 
     #[test]
