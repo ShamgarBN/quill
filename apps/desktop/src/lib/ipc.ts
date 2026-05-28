@@ -43,6 +43,8 @@ import type {
   Settings,
   SettingsPatch,
   ThemePreference,
+  Thread,
+  ThreadPatch,
   TodayProgress,
   VoiceFeatures,
   VoiceFingerprint,
@@ -372,6 +374,23 @@ export const brainIdeaUpdate = (
 
 export const brainIdeaDelete = (projectId: string, id: string): Promise<void> =>
   invoke<void>("brain_idea_delete", { projectId, id });
+
+// ---------- Plot threads ----------
+
+export const brainThreadsList = (projectId: string): Promise<Thread[]> =>
+  invoke<Thread[]>("brain_threads_list", { projectId });
+
+export const brainThreadCreate = (projectId: string, title: string): Promise<Thread> =>
+  invoke<Thread>("brain_thread_create", { projectId, title });
+
+export const brainThreadUpdate = (
+  projectId: string,
+  id: string,
+  patch: ThreadPatch,
+): Promise<Thread> => invoke<Thread>("brain_thread_update", { projectId, id, patch });
+
+export const brainThreadDelete = (projectId: string, id: string): Promise<void> =>
+  invoke<void>("brain_thread_delete", { projectId, id });
 
 // `Beat` is re-exported so consumers can import alongside ipc fns.
 export type { Beat };

@@ -2,6 +2,7 @@ import {
   BookOpenText,
   Compass,
   Database,
+  GitBranch,
   Users2,
   Lightbulb,
   Library,
@@ -26,6 +27,7 @@ const NAV: NavItem[] = [
   { id: "beats", label: "Beat Sheet", icon: Compass },
   { id: "canon", label: "Canon", icon: Database },
   { id: "bible", label: "Character Bible", icon: Users2 },
+  { id: "threads", label: "Plot Threads", icon: GitBranch },
   { id: "ideas", label: "Idea Park", icon: Lightbulb },
   { id: "research", label: "Research", icon: Library },
 ];

@@ -5,7 +5,9 @@
 //!   <project>/bible/ideas.json
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::{Character, CharacterPatch, Idea, IdeaPatch};
+use crate::models::brain::{
+    Character, CharacterPatch, Idea, IdeaPatch, Thread, ThreadPatch, ThreadStatus,
+};
 use crate::services::storage::{self, ProjectStore};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -19,6 +21,11 @@ struct CharacterFile {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct IdeaFile {
     pub ideas: Vec<Idea>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct ThreadFile {
+    pub threads: Vec<Thread>,
 }
 
 pub struct CharacterStore<'a> {
@@ -217,6 +224,85 @@ impl<'a> IdeaStore<'a> {
     }
 }
 
+pub struct ThreadStore<'a> {
+    projects: &'a ProjectStore,
+}
+
+impl<'a> ThreadStore<'a> {
+    pub fn new(projects: &'a ProjectStore) -> Self {
+        Self { projects }
+    }
+
+    fn path(&self, project_id: &str) -> Result<PathBuf> {
+        let dir = self.projects.root_dir(project_id)?.join("bible");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir.join("threads.json"))
+    }
+
+    pub fn list(&self, project_id: &str) -> Result<Vec<Thread>> {
+        let p = self.path(project_id)?;
+        let f: ThreadFile = storage::atomic_read_json_or_default(&p)?;
+        Ok(f.threads)
+    }
+
+    pub fn save(&self, project_id: &str, threads: &[Thread]) -> Result<()> {
+        let p = self.path(project_id)?;
+        storage::atomic_write_json(
+            &p,
+            &ThreadFile {
+                threads: threads.to_vec(),
+            },
+        )
+    }
+
+    pub fn create(&self, project_id: &str, title: &str) -> Result<Thread> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return Err(QuillError::InvalidArgument(
+                "thread title cannot be empty".into(),
+            ));
+        }
+        let mut threads = self.list(project_id)?;
+        let t = Thread::fresh(project_id, trimmed);
+        threads.push(t.clone());
+        self.save(project_id, &threads)?;
+        Ok(t)
+    }
+
+    pub fn delete(&self, project_id: &str, id: &str) -> Result<()> {
+        let mut threads = self.list(project_id)?;
+        let before = threads.len();
+        threads.retain(|t| t.id != id);
+        if threads.len() == before {
+            return Err(QuillError::NotFound(format!("thread {id}")));
+        }
+        self.save(project_id, &threads)
+    }
+
+    pub fn update(&self, project_id: &str, id: &str, patch: ThreadPatch) -> Result<Thread> {
+        let mut threads = self.list(project_id)?;
+        let t = threads
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or_else(|| QuillError::NotFound(format!("thread {id}")))?;
+        patch.apply(t);
+        t.updated_at = Utc::now();
+        let updated = t.clone();
+        self.save(project_id, &threads)?;
+        Ok(updated)
+    }
+
+    /// Threads with status Open or Advancing — what the drafting
+    /// orchestrator should consider "in motion". Returns most recently
+    /// updated first.
+    pub fn in_motion(&self, project_id: &str) -> Result<Vec<Thread>> {
+        let mut threads = self.list(project_id)?;
+        threads.retain(|t| matches!(t.status, ThreadStatus::Open | ThreadStatus::Advancing));
+        threads.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
+        Ok(threads)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +437,43 @@ mod tests {
             .relevant_for_draft(&p.id, Some("finale"), None, None, 10)
             .unwrap();
         assert!(hits.is_empty(), "do_not_send idea must not leak");
+    }
+
+    #[test]
+    fn thread_create_update_in_motion_filters_resolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = ThreadStore::new(&projects);
+
+        let t1 = store.create(&p.id, "Kaelan's vow").unwrap();
+        let t2 = store.create(&p.id, "Forgotten god in the well").unwrap();
+        // Mark t1 as resolved.
+        store
+            .update(
+                &p.id,
+                &t1.id,
+                ThreadPatch {
+                    status: Some(ThreadStatus::Resolved),
+                    ..ThreadPatch::default()
+                },
+            )
+            .unwrap();
+        let motion = store.in_motion(&p.id).unwrap();
+        assert_eq!(motion.len(), 1);
+        assert_eq!(motion[0].id, t2.id);
+    }
+
+    #[test]
+    fn thread_rejects_empty_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let store = ThreadStore::new(&projects);
+        assert!(matches!(
+            store.create(&p.id, "  "),
+            Err(QuillError::InvalidArgument(_))
+        ));
     }
 
     #[test]

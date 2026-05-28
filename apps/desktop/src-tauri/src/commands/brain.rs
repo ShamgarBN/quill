@@ -1,8 +1,10 @@
 //! Phase 7 — Character Bible + Idea Park commands.
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::{Character, CharacterPatch, CrossLink, Idea, IdeaPatch};
-use crate::services::brain::{find_cross_links, CharacterStore, IdeaStore};
+use crate::models::brain::{
+    Character, CharacterPatch, CrossLink, Idea, IdeaPatch, Thread, ThreadPatch,
+};
+use crate::services::brain::{find_cross_links, CharacterStore, IdeaStore, ThreadStore};
 use crate::state::AppState;
 use tauri::State;
 
@@ -88,4 +90,39 @@ pub fn brain_idea_update(
 #[tauri::command]
 pub fn brain_idea_delete(state: State<'_, AppState>, project_id: String, id: String) -> Result<()> {
     IdeaStore::new(&state.projects).delete(&project_id, &id)
+}
+
+// ---------- Threads ----------
+
+#[tauri::command]
+pub fn brain_threads_list(state: State<'_, AppState>, project_id: String) -> Result<Vec<Thread>> {
+    ThreadStore::new(&state.projects).list(&project_id)
+}
+
+#[tauri::command]
+pub fn brain_thread_create(
+    state: State<'_, AppState>,
+    project_id: String,
+    title: String,
+) -> Result<Thread> {
+    ThreadStore::new(&state.projects).create(&project_id, &title)
+}
+
+#[tauri::command]
+pub fn brain_thread_update(
+    state: State<'_, AppState>,
+    project_id: String,
+    id: String,
+    patch: ThreadPatch,
+) -> Result<Thread> {
+    ThreadStore::new(&state.projects).update(&project_id, &id, patch)
+}
+
+#[tauri::command]
+pub fn brain_thread_delete(
+    state: State<'_, AppState>,
+    project_id: String,
+    id: String,
+) -> Result<()> {
+    ThreadStore::new(&state.projects).delete(&project_id, &id)
 }

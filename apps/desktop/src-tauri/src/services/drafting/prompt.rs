@@ -2,7 +2,7 @@
 //!
 //! Tested in isolation against synthetic beats / scenes / canon chunks.
 
-use crate::models::brain::{Character, Idea};
+use crate::models::brain::{Character, Idea, Thread, ThreadStatus};
 use crate::models::canon::ChunkRef;
 use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
@@ -48,6 +48,16 @@ pub struct PromptInputs<'a> {
     /// Idea Park entries whose tags target the active draft (by beat,
     /// scene, or POV). Already filtered to non-`do_not_send` items.
     pub ideas: &'a [Idea],
+
+    /// Plot threads with status Open or Advancing for this project, in
+    /// most-recently-updated order. The assembler marks which ones are
+    /// linked to the active scene (via `linked_thread_ids`) so the model
+    /// knows which threads are "live in this scene" vs "globally open."
+    pub threads: &'a [Thread],
+
+    /// Subset of `threads` (by id) that the active scene is currently
+    /// tagged as touching.
+    pub linked_thread_ids: &'a [String],
 
     /// Reference style passages (voice anchors). Each is `(label, text)`.
     /// Already filtered to enabled pins, ordered by weight, possibly
@@ -223,6 +233,38 @@ fn build_user_message(inputs: &PromptInputs<'_>, included: &mut Vec<IncludedCate
             }
             buf.push_str("- ");
             buf.push_str(&trim_for_prompt(text, 400));
+            buf.push('\n');
+        }
+        buf.push('\n');
+    }
+
+    // 3.57 Plot threads in motion (structural) -------------------------
+    if !inputs.threads.is_empty() {
+        included.push(IncludedCategory::PlotThreads);
+        buf.push_str("# Plot threads in motion\n");
+        buf.push_str(
+            "These are open arcs the writer is tracking. Threads marked \
+             [linked] are ones this scene already touches — push them \
+             forward or close them. Don't introduce new contradictions.\n\n",
+        );
+        for t in inputs.threads {
+            let linked = inputs.linked_thread_ids.iter().any(|id| id == &t.id);
+            let status = match t.status {
+                ThreadStatus::Open => "open",
+                ThreadStatus::Advancing => "advancing",
+                ThreadStatus::Resolved => "resolved",
+                ThreadStatus::Abandoned => "abandoned",
+            };
+            buf.push_str("- ");
+            if linked {
+                buf.push_str("**[linked]** ");
+            }
+            buf.push_str(&format!("_{status}_ — **{}**", t.title.trim()));
+            let desc = t.description.trim();
+            if !desc.is_empty() {
+                buf.push_str(": ");
+                buf.push_str(&trim_for_prompt(desc, 240));
+            }
             buf.push('\n');
         }
         buf.push('\n');
@@ -480,6 +522,7 @@ mod tests {
             crisis: "".into(),
             climax: "".into(),
             resolution: "".into(),
+            thread_ids: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -528,6 +571,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -572,6 +617,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -598,6 +645,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -628,6 +677,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -652,6 +703,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -709,6 +762,8 @@ mod tests {
             setting_canon: &[],
             pov_character: Some(&character),
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -743,11 +798,57 @@ mod tests {
             setting_canon: &[],
             pov_character: Some(&character),
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
         assert!(user.contains("Hidden bloodline"));
         assert!(user.contains("user opted in"));
+    }
+
+    #[test]
+    fn threads_in_motion_render_with_linked_flag() {
+        use crate::models::brain::{Thread, ThreadStatus};
+        let scene = fake_scene();
+        let mut active = Thread::fresh("p1", "Kaelan's blood-debt to the rangers");
+        active.description = "introduced ch1; must be called in by ch16".into();
+        active.status = ThreadStatus::Advancing;
+        let mut other = Thread::fresh("p1", "Why the bell never tolls in winter");
+        other.status = ThreadStatus::Open;
+        let threads = vec![active.clone(), other];
+        let linked = vec![active.id.clone()];
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: None,
+            ideas: &[],
+            threads: &threads,
+            linked_thread_ids: &linked,
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# Plot threads in motion"));
+        assert!(user.contains("blood-debt"));
+        // Linked thread gets the [linked] marker, the other does not.
+        let lines: Vec<&str> = user.lines().collect();
+        let linked_line = lines.iter().find(|l| l.contains("blood-debt")).unwrap();
+        let other_line = lines
+            .iter()
+            .find(|l| l.contains("bell never tolls"))
+            .unwrap();
+        assert!(linked_line.contains("[linked]"));
+        assert!(!other_line.contains("[linked]"));
+        assert!(assembled.included.contains(&IncludedCategory::PlotThreads));
     }
 
     #[test]
@@ -769,6 +870,8 @@ mod tests {
             setting_canon: &[],
             pov_character: None,
             ideas: &ideas,
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -797,6 +900,8 @@ mod tests {
             setting_canon: std::slice::from_ref(&chunk),
             pov_character: None,
             ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);

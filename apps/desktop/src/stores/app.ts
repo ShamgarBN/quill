@@ -13,6 +13,7 @@ export type RouteId =
   | "beats"
   | "canon"
   | "bible"
+  | "threads"
   | "ideas"
   | "research"
   | "settings";

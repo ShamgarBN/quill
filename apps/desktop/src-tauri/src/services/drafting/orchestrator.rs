@@ -3,10 +3,10 @@
 //! provider, and the audit log.
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::{Character, Idea};
+use crate::models::brain::{Character, Idea, Thread};
 use crate::models::canon::{CanonKind, ChunkRef};
 use crate::models::structure::{Beat, Scene};
-use crate::services::brain::{CharacterStore, IdeaStore};
+use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore};
 use crate::services::canon::IngestService;
 use crate::services::drafting::prompt::{assemble_messages, PromptInputs};
 use crate::services::llm::{
@@ -93,6 +93,10 @@ pub struct DraftPreview {
     pub setting_canon_count: u32,
     /// Number of Idea Park entries auto-matched by tag and included.
     pub idea_count: u32,
+    /// Number of plot threads (open + advancing) included in the prompt.
+    pub thread_count: u32,
+    /// Number of those threads that the active scene is currently linked to.
+    pub linked_thread_count: u32,
     pub provider: String,
     pub model: String,
 }
@@ -138,6 +142,8 @@ impl<'a> DraftingService<'a> {
             setting_canon,
             pov_character,
             ideas,
+            threads,
+            linked_thread_ids,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -164,6 +170,8 @@ impl<'a> DraftingService<'a> {
             setting_canon: &setting_canon,
             pov_character: pov_character.as_ref(),
             ideas: &ideas,
+            threads: &threads,
+            linked_thread_ids: &linked_thread_ids,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -179,6 +187,8 @@ impl<'a> DraftingService<'a> {
             pov_character_name: pov_character.as_ref().map(|c| c.name.clone()),
             setting_canon_count: setting_canon.len() as u32,
             idea_count: ideas.len() as u32,
+            thread_count: threads.len() as u32,
+            linked_thread_count: linked_thread_ids.len() as u32,
             provider: chat_provider.provider_id().to_string(),
             model: chat_provider.model_id().to_string(),
         })
@@ -202,6 +212,8 @@ impl<'a> DraftingService<'a> {
             setting_canon,
             pov_character,
             ideas,
+            threads,
+            linked_thread_ids,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -238,6 +250,8 @@ impl<'a> DraftingService<'a> {
             setting_canon: &setting_canon,
             pov_character: pov_character.as_ref(),
             ideas: &ideas,
+            threads: &threads,
+            linked_thread_ids: &linked_thread_ids,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -445,6 +459,20 @@ impl<'a> DraftingService<'a> {
             5,
         )?;
 
+        // Plot threads: all open/advancing threads for the project, plus
+        // the subset the active scene is currently linked to.
+        let threads = ThreadStore::new(self.projects).in_motion(&req.project_id)?;
+        // Only keep linked ids that actually exist in the active thread set,
+        // so a stale id on a scene doesn't claim membership in nothing.
+        let in_motion_ids: std::collections::HashSet<&str> =
+            threads.iter().map(|t| t.id.as_str()).collect();
+        let linked_thread_ids: Vec<String> = scene
+            .thread_ids
+            .iter()
+            .filter(|id| in_motion_ids.contains(id.as_str()))
+            .cloned()
+            .collect();
+
         Ok(DraftContext {
             scene,
             beat,
@@ -455,6 +483,8 @@ impl<'a> DraftingService<'a> {
             setting_canon,
             pov_character,
             ideas,
+            threads,
+            linked_thread_ids,
             voice_anchors,
             current_drift,
         })
@@ -472,6 +502,8 @@ struct DraftContext {
     setting_canon: Vec<ChunkRef>,
     pov_character: Option<Character>,
     ideas: Vec<Idea>,
+    threads: Vec<Thread>,
+    linked_thread_ids: Vec<String>,
     voice_anchors: Vec<(String, String)>,
     current_drift: Option<f32>,
 }

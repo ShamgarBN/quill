@@ -29,6 +29,8 @@ pub enum IncludedCategory {
     SettingCanon,
     /// Idea Park entries tagged for the active beat/scene/POV.
     IdeaPark,
+    /// Open / advancing plot threads — global + linked-to-active-scene.
+    PlotThreads,
     RecentParagraphs,
     CanonTopK,
     ReferencePins,

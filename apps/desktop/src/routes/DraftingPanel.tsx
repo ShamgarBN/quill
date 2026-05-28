@@ -413,6 +413,16 @@ function PreviewBlock({
               Ideas: {preview.idea_count}
             </span>
           )}
+          {preview.thread_count > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-violet-900 dark:bg-violet-900/30 dark:text-violet-200"
+              title="Open/Advancing plot threads in the project. [linked] in the prompt = tagged on this scene."
+            >
+              Threads: {preview.thread_count}
+              {preview.linked_thread_count > 0 &&
+                ` (${preview.linked_thread_count} linked)`}
+            </span>
+          )}
         </div>
       )}
 
