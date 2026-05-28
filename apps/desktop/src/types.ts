@@ -146,6 +146,7 @@ export type IncludedCategory =
   | "character_bible_entry"
   | "setting_canon"
   | "idea_park"
+  | "plot_threads"
   | "recent_paragraphs"
   | "canon_top_k"
   | "reference_pins"
@@ -232,6 +233,8 @@ export interface Scene {
   crisis: string;
   climax: string;
   resolution: string;
+  /** IDs of plot threads this scene touches. References Thread.id. */
+  thread_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -248,6 +251,7 @@ export interface ScenePatch {
   crisis?: string;
   climax?: string;
   resolution?: string;
+  thread_ids?: string[];
 }
 
 export interface ImportedBeat {
@@ -434,6 +438,31 @@ export interface IdeaPatch {
   do_not_send?: boolean;
 }
 
+export type ThreadStatus = "open" | "advancing" | "resolved" | "abandoned";
+
+export interface Thread {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: ThreadStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadPatch {
+  title?: string;
+  description?: string;
+  status?: ThreadStatus;
+}
+
+export const THREAD_STATUS_LABEL: Record<ThreadStatus, string> = {
+  open: "Open",
+  advancing: "Advancing",
+  resolved: "Resolved",
+  abandoned: "Abandoned",
+};
+
 export type CrossLink =
   | {
       kind: "scene";
@@ -501,6 +530,10 @@ export interface DraftPreview {
   setting_canon_count: number;
   /** How many Idea Park entries were auto-matched by tag and included. */
   idea_count: number;
+  /** How many plot threads (Open + Advancing) were included in the prompt. */
+  thread_count: number;
+  /** Of those threads, how many are tagged on the active scene. */
+  linked_thread_count: number;
   provider: string;
   model: string;
 }

@@ -220,6 +220,7 @@ pub enum SceneStatus {
 /// A single scene within the manuscript. Owns the Story Grid five
 /// commandments inline so the user can fill them progressively.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Scene {
     pub id: String,
     pub project_id: String,
@@ -239,8 +240,37 @@ pub struct Scene {
     pub crisis: String,
     pub climax: String,
     pub resolution: String,
+    /// Plot threads this scene touches (introduces, advances, or resolves).
+    /// IDs reference `Thread.id` from the project's thread store.
+    /// Defaulted in serde for backward compat with v0.2 scene records.
+    pub thread_ids: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: String::new(),
+            project_id: String::new(),
+            order: 0,
+            title: String::new(),
+            pov: None,
+            setting: None,
+            status: SceneStatus::Outlined,
+            word_count: 0,
+            beat_id: None,
+            inciting_incident: String::new(),
+            progressive_complication: String::new(),
+            crisis: String::new(),
+            climax: String::new(),
+            resolution: String::new(),
+            thread_ids: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
 
 impl Scene {
@@ -261,6 +291,7 @@ impl Scene {
             crisis: String::new(),
             climax: String::new(),
             resolution: String::new(),
+            thread_ids: Vec::new(),
             created_at: now,
             updated_at: now,
         }

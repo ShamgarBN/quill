@@ -154,6 +154,9 @@ pub struct ScenePatch {
     pub crisis: Option<String>,
     pub climax: Option<String>,
     pub resolution: Option<String>,
+    /// Wholesale-replace the scene's linked thread ids. Pass `Some(Vec::new())`
+    /// to clear, `Some(vec![...])` to set, omit to leave alone.
+    pub thread_ids: Option<Vec<String>>,
 }
 
 #[tauri::command]
@@ -196,6 +199,9 @@ pub fn structure_scene_update(
         }
         if let Some(v) = patch.resolution {
             s.resolution = v;
+        }
+        if let Some(v) = patch.thread_ids {
+            s.thread_ids = v;
         }
     })
 }

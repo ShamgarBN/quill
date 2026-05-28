@@ -191,6 +191,80 @@ impl IdeaPatch {
     }
 }
 
+/// A recurring plot/character arc that must close (or explicitly abandon)
+/// by the book's end. Threads sit alongside the Character Bible in
+/// `<project>/bible/threads.json`.
+///
+/// Workflow: the writer captures a Thread when they spot something that
+/// can't be a one-off (a buried grudge, a magic system implication, a
+/// promise the narrator made). Scenes link to threads via `Scene.thread_ids`.
+/// The drafting orchestrator surfaces open/advancing threads to the AI so
+/// suggestions account for what's in motion. The user manually moves a
+/// thread to `Resolved` or `Abandoned` when it lands.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThreadStatus {
+    /// Introduced but not yet pushed forward in a scene.
+    #[default]
+    Open,
+    /// At least one scene has pushed it forward but it hasn't landed.
+    Advancing,
+    /// Closed on-page; satisfied.
+    Resolved,
+    /// Deliberately dropped (not the same as forgotten).
+    Abandoned,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Thread {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: ThreadStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Thread {
+    pub fn fresh(project_id: &str, title: &str) -> Self {
+        let now = Utc::now();
+        Self {
+            id: format!("thr_{}", Uuid::new_v4().simple()),
+            project_id: project_id.to_string(),
+            title: title.to_string(),
+            description: String::new(),
+            status: ThreadStatus::Open,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ThreadPatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<ThreadStatus>,
+}
+
+impl ThreadPatch {
+    pub fn apply(self, t: &mut Thread) {
+        if let Some(v) = self.title {
+            t.title = v;
+        }
+        if let Some(v) = self.description {
+            t.description = v;
+        }
+        if let Some(v) = self.status {
+            t.status = v;
+        }
+    }
+}
+
 /// A single match returned by character cross-link queries. Generic over
 /// the source kind so the UI can render all matches in one list.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -8,6 +8,7 @@ import { ManuscriptView } from "@/routes/Manuscript";
 import { BeatsView } from "@/routes/Beats";
 import { CanonView } from "@/routes/Canon";
 import { BibleView } from "@/routes/Bible";
+import { ThreadsView } from "@/routes/Threads";
 import { IdeasView } from "@/routes/Ideas";
 import { ResearchView } from "@/routes/Research";
 import { SettingsView } from "@/routes/Settings";
@@ -90,6 +91,7 @@ export default function App(): JSX.Element {
           {route === "beats" && <BeatsView />}
           {route === "canon" && <CanonView />}
           {route === "bible" && <BibleView />}
+          {route === "threads" && <ThreadsView />}
           {route === "ideas" && <IdeasView />}
           {route === "research" && <ResearchView />}
           {route === "settings" && <SettingsView />}
