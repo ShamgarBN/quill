@@ -1,6 +1,6 @@
 {
   "name": "quill-desktop",
-  "version": "0.2.1",
+  "version": "1.0.0",
   "description": "Quill — a domain-tuned writing companion for YA fantasy.",
   "private": true,
   "type": "module",
