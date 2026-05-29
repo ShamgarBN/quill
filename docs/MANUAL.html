@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quill — User Manual</title>
+<style>
+  :root {
+    --bg: #faf8f4;
+    --surface: #ffffff;
+    --surface-subtle: #f4f1ea;
+    --ink: #221f1a;
+    --ink-muted: #4f4a42;
+    --ink-faint: #8a8378;
+    --line: #e6e0d5;
+    --accent: #9a5b2e;
+    --accent-subtle: #f3e6d8;
+    --green: #2f7d4f;
+    --amber: #9a6a18;
+    --red: #b23b3b;
+    --code-bg: #f0ece3;
+    --maxw: 820px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16140f;
+      --surface: #1d1a14;
+      --surface-subtle: #221e17;
+      --ink: #ece7dd;
+      --ink-muted: #c0b9ac;
+      --ink-faint: #8d867a;
+      --line: #332e25;
+      --accent: #d99a5e;
+      --accent-subtle: #3a2c1c;
+      --green: #6fcf97;
+      --amber: #e0b366;
+      --red: #e08585;
+      --code-bg: #26221a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Charter, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 56px 28px 120px;
+  }
+  header.title {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header.title .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 14px;
+  }
+  header.title .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); display: inline-block;
+  }
+  h1 { font-size: 38px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -.01em; }
+  .subtitle { color: var(--ink-faint); font-style: italic; margin: 0 0 18px; }
+  h2 {
+    font-size: 26px; margin: 52px 0 14px; padding-top: 14px;
+    border-top: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h2:first-of-type { border-top: none; }
+  h3 { font-size: 19px; margin: 28px 0 8px; color: var(--ink); }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul, ol { margin: 0 0 14px; padding-left: 24px; }
+  li { margin: 4px 0; }
+  strong { color: var(--ink); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+  code {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .85em;
+    background: var(--code-bg);
+    padding: .12em .42em;
+    border-radius: 4px;
+    color: var(--ink-muted);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 16px;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none; padding: 0; font-size: 13.5px; color: var(--ink-muted);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 18px;
+    font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    background: var(--surface-subtle);
+    font-weight: 600;
+    color: var(--ink);
+    border-bottom: 2px solid var(--line);
+  }
+  tbody tr:nth-child(even) { background: var(--surface-subtle); }
+  .lede {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 0 0 28px;
+  }
+  blockquote, .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface-subtle);
+    border-radius: 0 8px 8px 0;
+    padding: 10px 18px;
+    margin: 0 0 16px;
+    color: var(--ink-muted);
+  }
+  blockquote p:last-child, .note p:last-child { margin-bottom: 0; }
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 26px;
+    margin: 0 0 40px;
+    font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+  }
+  nav.toc h2 {
+    border: none; margin: 0 0 10px; padding: 0; font-size: 13px;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--ink-faint);
+  }
+  nav.toc ol { columns: 2; column-gap: 36px; padding-left: 20px; margin: 0; }
+  nav.toc li { margin: 5px 0; }
+  nav.toc a { color: var(--ink-muted); }
+  nav.toc a:hover { color: var(--accent); }
+  .pill {
+    display: inline-block; font-family: ui-sans-serif, -apple-system, sans-serif;
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px;
+    background: var(--accent-subtle); color: var(--accent);
+  }
+  .green { color: var(--green); }
+  .amber { color: var(--amber); }
+  .red { color: var(--red); }
+  footer.end {
+    margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line);
+    color: var(--ink-faint); font-style: italic;
+  }
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    h1 { font-size: 30px; }
+    nav.toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="title">
+  <div class="mark"><span class="dot"></span> Quill</div>
+  <h1>User Manual</h1>
+  <p class="subtitle">Version 0.2.1 · macOS (Apple Silicon)</p>
+</header>
+
+<div class="lede">
+  <p>This is the working manual for Quill — the writing companion you built to draft
+  your YA fantasy novel. It's written for you, the one person who uses it, and it
+  describes the app exactly as it ships today. Keep it open while you write.</p>
+  <p style="margin-bottom:0">If you only read one thing, read this: <strong>Quill treats the AI as a
+  renderer, not an author.</strong> Your canon, your voice fingerprint, your beat
+  sheet, and your plot threads are the author. The model produces candidates; you
+  decide what survives. Everything below is in service of keeping that loop honest.</p>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#s1">What Quill is</a></li>
+    <li><a href="#s2">Launching the app</a></li>
+    <li><a href="#s3">The workspace</a></li>
+    <li><a href="#s4">Projects</a></li>
+    <li><a href="#s5">Settings &amp; cloud LLMs</a></li>
+    <li><a href="#s6">Research — voice fingerprint</a></li>
+    <li><a href="#s7">Canon — worldbuilding &amp; vault</a></li>
+    <li><a href="#s8">Privacy rules &amp; sensitivity</a></li>
+    <li><a href="#s9">Beat Sheet</a></li>
+    <li><a href="#s10">Character Bible</a></li>
+    <li><a href="#s11">Plot Threads</a></li>
+    <li><a href="#s12">Idea Park</a></li>
+    <li><a href="#s13">Manuscript — writing scenes</a></li>
+    <li><a href="#s14">Drafting with AI</a></li>
+    <li><a href="#s15">Reviewing changes (track-changes)</a></li>
+    <li><a href="#s16">Compile &amp; export</a></li>
+    <li><a href="#s17">Where your work lives</a></li>
+    <li><a href="#s18">Backups &amp; version history</a></li>
+    <li><a href="#s19">Keyboard shortcuts</a></li>
+    <li><a href="#s20">Troubleshooting</a></li>
+  </ol>
+</nav>
+
+<h2 id="s1">1. What Quill is</h2>
+<p>Quill is a native macOS desktop app (not a website, not a ChatGPT wrapper). It is
+built around five components that work together:</p>
+<ul>
+  <li><strong>Canon retrieval</strong> — your worldbuilding, ingested and searchable, so the AI draws from your truth instead of inventing.</li>
+  <li><strong>Voice fingerprint</strong> — a statistical model of the prose voice you want, learned from reference passages you pin.</li>
+  <li><strong>Beat tracking</strong> — a 15-beat Save the Cat skeleton that tells you what scene to write next and how long it should run.</li>
+  <li><strong>Structural editing</strong> — scenes carry POV, setting, status, beat links, and plot-thread links that feed the drafting context.</li>
+  <li><strong>Prose generation</strong> — the LLM, gated by the voice-drift detector, used only to render candidates you accept by hand.</li>
+</ul>
+<p>Your manuscript is plain Markdown. Everything else is plain JSON. You are never
+trapped in a proprietary format — you can grep it, diff it, or open it in any editor.</p>
+
+<h2 id="s2">2. Launching the app</h2>
+<h3>From the installed app</h3>
+<p>Double-click <strong>Quill.app</strong> in Applications. If macOS refuses with
+<em>"Quill.app is damaged"</em> or <em>"the developer cannot be verified"</em>, that's
+Gatekeeper reacting to the app not having an Apple Developer ID yet — the bundle is
+fine, just quarantined. Strip the flag once:</p>
+<pre><code>xattr -cr /Applications/Quill.app
+open /Applications/Quill.app</code></pre>
+<p>macOS remembers the decision after that.</p>
+<h3>From source (development)</h3>
+<pre><code>cd apps/desktop
+QUILL_DATA_DIR=/Users/benniemann/Projects/AI-Projects/Quill/.dev-userdata pnpm tauri dev</code></pre>
+<p><code>QUILL_DATA_DIR</code> keeps development data out of the real app-support
+directory so you can wipe and start over without touching live work. The first build
+takes a few minutes; later launches are seconds.</p>
+<h3>First run</h3>
+<p>On first launch Quill creates <code>~/Library/Application Support/Quill/</code> and
+shows the <strong>project picker</strong>. Name your book (you can rename it later) and
+click <strong>Create project</strong>. If you only ever have one project, Quill opens it
+automatically on every subsequent launch.</p>
+
+<h2 id="s3">3. The workspace</h2>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│  ● Quill                              Focus  | ☀ ☾ ⌖     │  ← title bar
+├──────────┬──────────────────────────────────────────────┤
+│ Project  │                                               │
+│ Manuscript                  (the active view)            │
+│ Beat Sheet                                               │
+│ Canon    │                                               │
+│ Character Bible                                          │
+│ Plot Threads                                             │
+│ Idea Park│                                               │
+│ Research │                                               │
+│ ───────  │                                               │
+│ Settings │                                               │
+└──────────┴──────────────────────────────────────────────┘</code></pre>
+<p><strong>Title bar (top).</strong> App name in the center. On the right: a
+<strong>Focus</strong> toggle and a <strong>theme switcher</strong> (Light / Dark / System).</p>
+<p><strong>Sidebar (left).</strong> Your project name at the top, with two buttons
+beside it: a <strong>Reveal in Finder</strong> button (opens the project folder) and a
+collapse/expand chevron. Below are the seven views plus Settings in the footer.</p>
+<p><strong>Theme.</strong> Set Light, Dark, or System from the title bar at any time.
+System follows your macOS appearance.</p>
+<p><strong>Focus mode.</strong> Click <strong>Focus</strong> in the title bar or press
+<code>⌘.</code> to hide the sidebar and chrome for distraction-free writing. Press it
+again to bring the sidebar back.</p>
+
+<h2 id="s4">4. Projects</h2>
+<p>A project is one book. It owns its own canon index, beat sheet, scenes, voice pins,
+character bible, ideas, plot threads, and Git history.</p>
+<ul>
+  <li><strong>Create / open</strong> — done from the project picker on launch. A single project opens automatically.</li>
+  <li><strong>Reveal in Finder</strong> — the folder button next to the project name in the sidebar opens the project directory in Finder. Handy for backups or poking at the raw Markdown.</li>
+  <li><strong>Where it lives</strong> — <code>~/Library/Application Support/Quill/projects/&lt;id&gt;/</code>. See <a href="#s17">§17</a> for the full layout.</li>
+</ul>
+
+<h2 id="s5">5. Settings &amp; cloud LLMs</h2>
+<p>Open <strong>Settings</strong> from the sidebar footer.</p>
+<h3>Appearance</h3>
+<p><strong>Prose font</strong> — the font used in the writing pane: <strong>Charter</strong> (serif) or <strong>JetBrains Mono</strong>.</p>
+<h3>Drafting</h3>
+<p><strong>Default generation mode</strong> — Scene / Paragraph / Sentence. A stored preference for the scope you tend to work at.</p>
+<h3>LLM providers</h3>
+<table>
+  <thead><tr><th>Provider</th><th>Use</th><th>Embeddings?</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Mock</strong></td><td>offline, deterministic</td><td>yes (term-bag)</td><td>Echoes prompts, hash-based vectors. No real generation. Default and safe.</td></tr>
+    <tr><td><strong>Gemini</strong></td><td>drafting + embeddings</td><td>yes (real semantic)</td><td>Free tier trains on your inputs. Get a key at aistudio.google.com.</td></tr>
+    <tr><td><strong>Groq</strong> (Llama 3.3 70B)</td><td>drafting fallback</td><td>no</td><td>No embeddings endpoint — pair with Gemini or Mock for embeddings.</td></tr>
+  </tbody>
+</table>
+<p>To go live:</p>
+<ol>
+  <li>Set <strong>Chat provider</strong> (Mock / Gemini / Groq) and <strong>Embeddings provider</strong> (Mock / Gemini).</li>
+  <li>For each cloud provider, click <strong>Set key</strong>, paste your API key (<code>AIza…</code> for Gemini, <code>gsk_…</code> for Groq), and Save. Keys are encrypted at rest (Argon2id + AES-256-GCM) under <code>~/Library/Application Support/Quill/secrets/</code>.</li>
+  <li>Click <strong>Ping</strong> to verify the key actually works. The reply shows inline; the ping is recorded in the audit log.</li>
+</ol>
+<p>Switching providers takes effect on the <strong>next call</strong> — no restart.
+Leave everything on <strong>Mock</strong> to write and ingest entirely offline; canon
+retrieval and voice drift both work without any cloud call.</p>
+<h3>Privacy</h3>
+<ul>
+  <li><strong>Show "what gets sent" preview</strong> — when on (the default), every AI call first shows you the assembled payload and waits for your confirmation. When off, calls send immediately.</li>
+  <li><strong>Free-tier disclosure</strong> — a one-time acknowledgement that the Gemini free tier trains on your inputs. Click <strong>I understand the free-tier tradeoffs</strong> to clear it.</li>
+</ul>
+<h3>Audit log</h3>
+<p>An append-only record of every cloud call: operation, provider, model, token
+counts, success/error, and the <strong>categories</strong> of content sent — never the
+content itself. Choose how many recent entries to show, refresh, and
+<strong>Reveal</strong> the <code>audit.jsonl</code> file in Finder.</p>
+<h3>About</h3>
+<p>App version, current phase, and your data directory path.</p>
+
+<h2 id="s6">6. Research — your voice fingerprint</h2>
+<p>The <strong>Research</strong> view is where you teach Quill the voice you're aiming for.</p>
+<h3>Reference pins</h3>
+<p>Click <strong>New pin</strong>, give it a memorable label (e.g. <em>"Eragon ch1 —
+Saphira hatching"</em>), and paste a 200–800 word passage. Build 3–10 pins from books
+whose voice matches your target — <em>Eragon</em>, <em>Percy Jackson</em>, early
+<em>Harry Potter</em>, <em>The Wingfeather Saga</em>. <strong>Don't blend genres</strong>;
+stay in YA fantasy.</p>
+<p>Each pin card lets you:</p>
+<ul>
+  <li><strong>Weight</strong> it (0–10) — heavier pins pull the fingerprint harder.</li>
+  <li><strong>Enable / disable</strong> it (the power icon) — disabled pins don't count.</li>
+  <li><strong>Delete</strong> it, or expand to read the full passage.</li>
+</ul>
+<p>The <strong>fingerprint</strong> is the word-count-weighted centroid of all enabled
+pins. It's recomputed live on every drift check, so editing a pin updates everything
+downstream immediately.</p>
+<h3>Voice drift tester</h3>
+<p>Once you have at least one pin, a tester appears at the bottom. Paste any candidate
+passage and click <strong>Compare to fingerprint</strong>. You get:</p>
+<ul>
+  <li><strong>Overall drift</strong> — a 0–100% score plus the cosine similarity. Under ~15% feels on-voice; over ~35% is a clear shift worth investigating.</li>
+  <li><strong>Top deltas</strong> — the specific features that diverged most (sentence length, dialogue ratio, punctuation cadence, etc.), as z-scores against the fingerprint.</li>
+</ul>
+<p>This same machinery powers the live drift gauge in the editor and the drift gate on AI drafts.</p>
+
+<h2 id="s7">7. Canon — worldbuilding &amp; your Obsidian vault</h2>
+<p>The <strong>Canon</strong> view is your worldbuilding index — everything the AI is
+allowed to pull from when drafting. The header shows how many chunks are indexed.</p>
+<h3>Connecting your Obsidian vault (recommended)</h3>
+<p>Under <strong>Obsidian vault</strong>:</p>
+<ol>
+  <li>Click <strong>Pick vault…</strong> and choose your vault directory (or any folder of Markdown).</li>
+  <li>Click <strong>Start watching</strong>. From then on, files you save in that directory are re-ingested automatically. New files are picked up too.</li>
+  <li>The status line shows it live: events received, files re-ingested, and the last change with a relative timestamp.</li>
+</ol>
+<p><strong>Deletions are intentionally ignored.</strong> Obsidian saves atomically by
+writing a temporary file and renaming it, so acting on "removed" events would risk
+destroying data. To clean up after files you've genuinely deleted, use the
+<strong>corpus inspector's</strong> prune control (below).</p>
+<p><strong>Auto-resume.</strong> If a project has a vault path and watching was on, Quill
+silently restarts the watcher when you open the project. If the folder moved or
+permissions changed, it fails quietly — just re-pick the path in this view.</p>
+<h3>Manual ingest</h3>
+<p>Set the <strong>New ingest defaults</strong> (Kind + Sensitivity), then click
+<strong>Ingest file</strong> in the header and pick a <code>.md</code>,
+<code>.markdown</code>, <code>.txt</code>, or <code>.pdf</code>. Quill extracts the text,
+splits it into ~400–800-word chunks (respecting Markdown headings as breakpoints),
+embeds each chunk, and stores it.</p>
+<ul>
+  <li><strong>Kind</strong> — character, location, faction, magic, history, cosmology, timeline, lore (default), plot notes, DM session notes, other. Location and Cosmology kinds are what the drafting engine pulls for <strong>setting</strong> matches (see <a href="#s14">§14</a>).</li>
+  <li>Re-ingesting the same file path <strong>replaces</strong> the old chunks cleanly — use this to refresh a note you edited.</li>
+</ul>
+<h3>Searching canon</h3>
+<p>Under <strong>Search canon</strong>, type a natural-language query ("the dragon's
+lair", "House Vell rivalries"), choose how many results (<code>k</code>), and search.
+Results are ranked by cosine similarity and show their heading trail, score, word
+count, and sensitivity badge. The <strong>Respect do-not-send</strong> checkbox (on by
+default) excludes protected chunks the same way the AI does.</p>
+<div class="note"><p><strong>PDF note:</strong> the PDF extractor is heuristic. Tables,
+multi-column layouts, and scanned PDFs degrade. Prefer Markdown sources where you can.</p></div>
+<div class="note"><p><strong>Mock embeddings note:</strong> with the embeddings provider
+on Mock, recall is term-bag-shaped, not semantic. A banner reminds you. Switch to
+Gemini embeddings for real semantic retrieval.</p></div>
+
+<h2 id="s8">8. Privacy rules &amp; sensitivity</h2>
+<p>This is the safety net between your unstructured vault and a cloud LLM. Read it
+carefully — once something hits a free-tier model's training set, you can't pull it back.</p>
+<h3>The three tiers</h3>
+<table>
+  <thead><tr><th>Tier</th><th>Meaning</th><th>Sent to cloud?</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Public</strong></td><td>Background lore, public world details.</td><td class="green">Yes</td></tr>
+    <tr><td><strong>Spoiler</strong></td><td>Reveals you'll share with the LLM but want flagged.</td><td class="amber">Yes (flagged)</td></tr>
+    <tr><td><strong>Do-not-send</strong></td><td>DM notes, twists, private journals.</td><td class="red"><strong>Never</strong></td></tr>
+  </tbody>
+</table>
+<p><code>do_not_send</code> is enforced at the <strong>retrieval layer</strong>: protected
+chunks are excluded from any search whose results would feed an LLM call.</p>
+<h3>Folder rules (Canon → Privacy rules)</h3>
+<p>Map a folder name or path prefix to a tier. Example: a rule with pattern
+<code>DM-Notes</code> → <code>do_not_send</code> protects every file inside any folder named
+<code>DM-Notes</code>, anywhere in your vault. Add as many rules as you need, set the
+<strong>default for unmatched files</strong>, and click <strong>Save rules</strong>.</p>
+<p>Saving <strong>retroactively re-tags</strong> every existing chunk whose source path
+matches — no preview, no confirm dialog. The status line tells you how many chunks changed.</p>
+<h3>Frontmatter override</h3>
+<p>A note's own YAML frontmatter wins over folder rules. Put this at the top of any
+Markdown file to lock it down regardless of where it lives:</p>
+<pre><code>---
+quill-sensitivity: do_not_send
+---</code></pre>
+<h3>Priority order</h3>
+<ol>
+  <li>The note's frontmatter (<code>quill-sensitivity:</code>).</li>
+  <li>The first matching folder rule.</li>
+  <li>The project default for unmatched files.</li>
+</ol>
+<h3>The cloud-enable banner</h3>
+<p>If your vault is connected, a cloud provider is selected, <strong>and</strong> you
+have no rules with the default still set to Public, Quill shows an amber banner across
+the Manuscript header: <em>"Your vault is auto-syncing as Public."</em> Click
+<strong>Configure rules</strong> to jump straight to the rules editor. The banner
+disappears once you add a rule or change the default off Public.</p>
+<h3>Corpus inspector (Canon → Indexed documents)</h3>
+<p>Audit and clean up everything in your index:</p>
+<ul>
+  <li>See every document with its word count, chunk count, and sensitivity. A <strong>mixed</strong> badge means a document's chunks have different tags.</li>
+  <li><strong>Filter</strong> by sensitivity, or show <strong>missing only</strong> (documents whose source file no longer exists on disk).</li>
+  <li><strong>Bulk re-tag</strong> — select documents, pick a target tier, <strong>Apply</strong>. Great for locking down a batch before turning on a cloud provider.</li>
+  <li><strong>Prune missing</strong> — delete index chunks for files you've removed from your vault (this is how you reconcile the watcher's ignore-deletions behavior).</li>
+  <li><strong>Delete</strong> a single document's chunks, or <strong>Reveal</strong> its source in Finder.</li>
+</ul>
+
+<h2 id="s9">9. Beat Sheet</h2>
+<p>The <strong>Beat Sheet</strong> view holds the 15 Save the Cat beats. The header shows
+how many are satisfied and your target word count.</p>
+<ul>
+  <li><strong>Target manuscript length</strong> — sets the % position of every beat. Default is appropriate for standalone YA (80–100k). Edit it and click out to save.</li>
+  <li><strong>Each beat</strong> shows its canonical label, target percentage, approximate target word position, and a description. Edit the <strong>summary</strong> inline (click out of the box to save), and toggle:
+    <ul>
+      <li><strong>Mark done</strong> — you've hit this beat (turns the card green).</li>
+      <li><strong>Lock</strong> — freezes this beat's content during generation.</li>
+    </ul>
+  </li>
+  <li><strong>Freeze</strong> (header) — locks the whole sheet so you can't accidentally edit it mid-draft. Unfreeze to make changes again.</li>
+  <li><strong>Import outline</strong> — paste an existing outline; Quill detects Save the Cat beat labels and routes the surrounding text into the right slots. <strong>Preview</strong> dry-runs the match (showing matched beats and leftovers) before you <strong>Apply</strong>.</li>
+</ul>
+<p>The beat you assign to a scene becomes part of that scene's drafting context.</p>
+
+<h2 id="s10">10. Character Bible</h2>
+<p>The <strong>Character Bible</strong> view is one card per character, with a cross-link
+panel on the right.</p>
+<p>Each character carries:</p>
+<ul>
+  <li><strong>Name</strong> and <strong>Aliases</strong> (comma-separated) — both are matched when finding cross-links.</li>
+  <li><strong>Role</strong> — Protagonist, Antagonist, Mentor, Ally, Love Interest, Family, Foil, Supporting, Minor.</li>
+  <li><strong>Arc one-liner</strong>, <strong>Motivation</strong>, <strong>Voice notes</strong>.</li>
+  <li><strong>Secrets</strong> — with its own <code>do_not_send</code> toggle (<strong>on by default</strong>). Keep it on so plot twists never cross the network.</li>
+</ul>
+<p><strong>Cross-links.</strong> Select a character and the right panel lists every scene
+and canon chunk that mentions them by name or alias (case-insensitive). This is your
+consistency audit — see every appearance at a glance. Add more aliases if a character
+is under-matched.</p>
+<p><strong>POV auto-injection.</strong> When a scene's <strong>POV</strong> field names a
+character that exists in the Bible, that character's entry is automatically added to the
+drafting context (see <a href="#s14">§14</a>).</p>
+
+<h2 id="s11">11. Plot Threads</h2>
+<p>The <strong>Plot Threads</strong> view tracks recurring arcs that must close by the
+book's end — a buried grudge, a magic-system implication, a promise the narrator made.</p>
+<p>Each thread has a <strong>title</strong>, a <strong>description</strong> (what's at
+stake, when it was introduced, when it must close), and a <strong>status</strong>:</p>
+<ul>
+  <li><strong>Open</strong> / <strong>Advancing</strong> — active. These are injected into <strong>every</strong> AI draft so the model knows what's in motion.</li>
+  <li><strong>Resolved</strong> / <strong>Abandoned</strong> — kept for reference but excluded from AI context.</li>
+</ul>
+<p>Threads are linked to individual scenes from the Manuscript scene-metadata strip
+(see <a href="#s13">§13</a>). In the drafting prompt, threads tagged on the active scene
+are marked <code>[linked]</code> so the model knows which are immediately relevant.</p>
+
+<h2 id="s12">12. Idea Park</h2>
+<p>The <strong>Idea Park</strong> is a capture-fast scratchpad for stray thoughts. Type
+into the box at the top, optionally add comma-separated tags, and click <strong>Add</strong>
+(or press <code>⌘↩</code>). Newest ideas sort first; tag chips along the top filter the list.</p>
+<p>Each idea card lets you edit the text and tags inline (auto-saved), toggle
+<strong>do-not-send</strong> (the eye icon — keeps the idea local, never sent to AI),
+<strong>Copy</strong> the text to the clipboard, or delete it.</p>
+<h3>Special tags that feed drafting</h3>
+<p>Tag an idea with one of these to have it auto-injected into the relevant AI draft:</p>
+<table>
+  <thead><tr><th>Tag</th><th>Surfaces the idea when…</th></tr></thead>
+  <tbody>
+    <tr><td><code>beat:catalyst</code></td><td>drafting a scene linked to that beat</td></tr>
+    <tr><td><code>pov:kaelan</code></td><td>drafting a scene whose POV matches</td></tr>
+    <tr><td><code>scene:&lt;id&gt;</code></td><td>drafting that specific scene</td></tr>
+  </tbody>
+</table>
+<p>This is how a "what if" note you jot today shows up exactly when you're writing the
+scene it belongs to — without you having to remember it.</p>
+
+<h2 id="s13">13. Manuscript — writing scenes</h2>
+<p>The <strong>Manuscript</strong> view is where you actually write. It has a scene rail
+on the left, the editor in the center, and (when open) the drafting panel on the right.</p>
+<h3>Scene rail</h3>
+<ul>
+  <li><strong>Progress card</strong> (top) — total words vs. target with a progress bar, and how many of the 15 beats your scenes touch.</li>
+  <li><strong>Status filter</strong> — chips for Outlined / Drafting / Drafted / Revised / Locked. Toggle to hide/show scenes by status. (Clearing all re-enables everything.)</li>
+  <li><strong>Scene list</strong> — each row shows order number, title, and word count. Click to open. <strong>Drag to reorder</strong> (the new order saves automatically). Hover to reveal the delete button. <strong>New</strong> creates a scene (you'll be prompted for a title).</li>
+</ul>
+<h3>Scene metadata strip</h3>
+<p>A compact row above the editor for the fields you flip often, without leaving your flow:</p>
+<ul>
+  <li><strong>POV</strong> — who's narrating (e.g. <em>"Kaelan, 3rd-limited"</em>). Commits on blur. When it matches a Bible character, that character feeds the draft context.</li>
+  <li><strong>Setting</strong> — where/when (e.g. <em>"The Hollow Wastes, dusk"</em>). Commits on blur. Used to pull Location/Cosmology canon into drafts.</li>
+  <li><strong>Status</strong> — Outlined / Drafting / Drafted / Revised / Locked (commits immediately).</li>
+  <li><strong>Beat</strong> — link the scene to one of the 15 beats (commits immediately).</li>
+  <li><strong>Threads</strong> — chips below the row. Click a linked thread to unlink it, or use <strong>+ link…</strong> to attach an Open/Advancing thread.</li>
+  <li><strong>Reveal in Finder</strong> — the folder icon opens the scene's <code>.md</code> file.</li>
+</ul>
+<h3>The editor</h3>
+<p>A clean writing surface in your chosen prose font. The footer shows live
+<strong>word</strong> and <strong>character</strong> counts and the
+<strong>voice-drift indicator</strong>:</p>
+<ul>
+  <li><em>"Pin reference passages in Research to enable voice drift."</em> — no fingerprint yet.</li>
+  <li><em>"Drift available after 30 words."</em> — keep writing.</li>
+  <li><strong>Voice: on voice / drifting / off voice</strong> with a 0–100 score. <span class="green">Green</span> below 45, <span class="amber">amber</span> 45–69, <span class="red">red</span> 70+. Hover for the cosine similarity.</li>
+</ul>
+<p><strong>Autosave</strong> fires 800&nbsp;ms after you stop typing. Every save writes
+the Markdown file, mirrors the word count back to the beat sheet, makes a Git commit,
+and re-checks drift. The save indicator in the header shows Editing… / Saving / Saved.</p>
+<h3>Today's words</h3>
+<p>A <strong>+N today</strong> badge in the header tracks your net word change since the
+start of the day. Hover to see yesterday's total. It updates after each save.</p>
+<h3>Manuscript search</h3>
+<p>Press <code>⌘F</code> to open a search bar over the whole manuscript. Results show
+the scene, line number, and a snippet; <strong>Enter</strong> jumps to the first match,
+click any result to open that scene, <strong>Esc</strong> closes.</p>
+<h3>Moving between scenes</h3>
+<ul>
+  <li><code>⌘N</code> — new scene.</li>
+  <li><code>⌘[</code> / <code>⌘]</code> — previous / next visible scene (respects the status filter).</li>
+</ul>
+
+<h2 id="s14">14. Drafting with AI</h2>
+<p>With a scene open, click <strong>Draft</strong> in the header to open the side panel.
+It mirrors the same disciplines the backend enforces — nothing is sent without your
+say-so, and nothing is written to disk by the model.</p>
+<h3>The three operations</h3>
+<table>
+  <thead><tr><th>Operation</th><th>What it does</th><th>Needs a selection?</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Continue</strong></td><td>Picks up where the scene ends and pushes toward the active beat.</td><td>No</td></tr>
+    <tr><td><strong>Rewrite</strong></td><td>Replaces the selected passage with a tighter version in your voice.</td><td>Yes</td></tr>
+    <tr><td><strong>Critique</strong></td><td>Returns notes (voice, pacing, continuity) — no prose to insert.</td><td>Yes</td></tr>
+  </tbody>
+</table>
+<p>Pick an operation, type an <strong>instruction</strong>, and (for Rewrite/Critique)
+select a passage in the editor first.</p>
+<h3>What gets assembled</h3>
+<p>The orchestrator reads the <strong>saved</strong> scene text from disk (so what you
+saved is what's sent) and assembles a context-bounded prompt from:</p>
+<ul>
+  <li>the <strong>scene card</strong> (POV, setting, status) and the <strong>linked beat</strong>;</li>
+  <li>the <strong>POV character's</strong> Bible entry, when the POV matches a character;</li>
+  <li><strong>setting canon</strong> — Location/Cosmology chunks matched to the scene's setting;</li>
+  <li>matching <strong>Idea Park</strong> entries (via <code>beat:</code> / <code>pov:</code> / <code>scene:</code> tags);</li>
+  <li><strong>Open/Advancing plot threads</strong> (scene-linked ones marked <code>[linked]</code>);</li>
+  <li>the <strong>top canon chunks</strong> by similarity (<code>do_not_send</code> always excluded);</li>
+  <li>your <strong>voice anchors</strong> (top reference pins).</li>
+</ul>
+<h3>Preview and send</h3>
+<p>If <strong>"what gets sent"</strong> is on (Settings → Privacy), the primary button
+reads <strong>Preview what gets sent</strong>. The preview shows context chips (POV,
+setting matches, ideas, threads), the full assembled messages (expand to read every
+line), and the canon/voice counts. Then <strong>Send</strong>. With previews off, the
+button sends directly.</p>
+<h3>The drift gate</h3>
+<p>Before sending, the preview reports the scene's current voice drift. If it's
+<strong>≥ 70</strong>, the gate <strong>blocks</strong> the call: extending already-drifted
+prose usually compounds the drift. The recommended move is to pause, re-read your pinned
+references, fix a few lines by hand, and try again. If you really mean it, tick
+<strong>Override the drift gate this once</strong> — the override is recorded in the audit log.</p>
+<h3>Acting on the result</h3>
+<p>The suggestion appears with token counts and the model name. For
+<strong>Continue</strong> and <strong>Rewrite</strong>, click <strong>Review changes</strong>
+to enter the track-changes view (<a href="#s15">§15</a>). <strong>Critique</strong> is
+read-only — integrate the notes by hand. You can also <strong>Retry</strong> or
+<strong>Discard</strong>. The model never writes to your scene; only you do, by applying a
+review.</p>
+<p>Every call is logged to <code>audit.jsonl</code> (categories + token counts, never content).</p>
+
+<h2 id="s15">15. Reviewing changes (track-changes)</h2>
+<p>When you click <strong>Review changes</strong>, the editor switches to an inline diff
+between your current scene and the proposed version, sentence by sentence.</p>
+<ul>
+  <li><strong>Removed</strong> text shows struck through in <span class="red">red</span>; <strong>added</strong> text shows highlighted in <span class="green">green</span>. Unchanged prose is left alone.</li>
+  <li>Each changed chunk has inline <strong>✓ accept</strong> / <strong>✗ reject</strong> controls. Changes start <strong>pending</strong> (amber highlight) until you decide.</li>
+  <li>Header controls: <strong>Accept all</strong>, <strong>Reject all</strong>, <strong>Reset</strong> (back to pending), and the live count of accepted vs. pending.</li>
+  <li><strong>Apply</strong> writes your accepted result into the scene (which then autosaves and commits). <strong>Cancel</strong> discards the whole suggestion.</li>
+</ul>
+<p>Anything still <strong>pending</strong> when you hit Apply is treated as
+<strong>rejected</strong> — the safe default, so you never silently accept something you
+didn't look at.</p>
+
+<h2 id="s16">16. Compile &amp; export</h2>
+<p>Click <strong>Compile</strong> in the Manuscript header to stitch every scene, in rail
+order, into a single Markdown file. Choose a save location in the dialog; Quill writes
+the file and reports how many scenes and words it compiled. The status line clears after
+a few seconds.</p>
+<p>Because the manuscript is already plain Markdown on disk, compile is just a convenient
+single-file export — you can hand the result to any converter (e.g. pandoc) for
+<code>.docx</code>, <code>.epub</code>, or PDF.</p>
+
+<h2 id="s17">17. Where your work lives</h2>
+<p>Everything is a plain file under <code>~/Library/Application Support/Quill/</code>:</p>
+<pre><code>~/Library/Application Support/Quill/
+├─ projects/
+│  └─ &lt;project_id&gt;/
+│     ├─ project.json              # metadata + vault path/rules
+│     ├─ manuscript/               # one .md per scene, order-prefixed
+│     │  ├─ 0000-front-matter.md
+│     │  └─ 0001-&lt;scene-id&gt;.md
+│     ├─ structure/
+│     │  ├─ beat_sheet.json
+│     │  └─ scenes.json            # titles, POV, setting, status, beats, threads
+│     ├─ canon/                    # ingested originals (kept for re-ingest)
+│     ├─ voice/
+│     │  └─ pins.json              # reference passages
+│     ├─ bible/
+│     │  └─ characters.json
+│     ├─ ideas/
+│     │  └─ ideas.json
+│     ├─ threads/                  # plot threads
+│     └─ .git/                     # auto-commit history (per project)
+├─ vectors.json                    # embedded canon chunks (keyed per project)
+├─ secrets/                        # encrypted API keys (Argon2id + AES-256-GCM)
+├─ audit.jsonl                     # log of every cloud LLM call (no content)
+└─ settings.json</code></pre>
+<p>The <strong>Reveal in Finder</strong> buttons (sidebar, scene strip, corpus inspector,
+audit log) open the relevant path directly.</p>
+
+<h2 id="s18">18. Backups &amp; version history</h2>
+<p><strong>Every save is a Git commit</strong> inside the project folder, so you have full
+history and one-command rollback.</p>
+<p>Roll a scene back to an earlier version:</p>
+<pre><code>cd ~/Library/Application\ Support/Quill/projects/&lt;project_id&gt;
+git log --oneline                       # find the commit you want
+git checkout &lt;commit&gt; -- manuscript/&lt;scene-file&gt;</code></pre>
+<p>Quill picks up the change on next reload.</p>
+<p><strong>Backups.</strong> Either zip <code>~/Library/Application Support/Quill/</code>
+periodically, or — since each project is its own Git repo — add a private remote and
+<code>git push</code>. The auto-commit history goes with it.</p>
+<div class="note"><p>Git auto-commit is best-effort. If <code>git</code> isn't on your
+PATH, saves still succeed but no commit is made (a warning is logged). Install the Xcode
+Command Line Tools (<code>xcode-select --install</code>) to get <code>git</code>.</p></div>
+
+<h2 id="s19">19. Keyboard shortcuts</h2>
+<table>
+  <thead><tr><th>Shortcut</th><th>Action</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td><code>⌘.</code></td><td>Toggle focus mode</td><td>Anywhere</td></tr>
+    <tr><td><code>⌘N</code></td><td>New scene</td><td>Manuscript</td></tr>
+    <tr><td><code>⌘[</code></td><td>Previous visible scene</td><td>Manuscript</td></tr>
+    <tr><td><code>⌘]</code></td><td>Next visible scene</td><td>Manuscript</td></tr>
+    <tr><td><code>⌘F</code></td><td>Search the manuscript</td><td>Manuscript</td></tr>
+    <tr><td><code>Esc</code></td><td>Close search</td><td>Manuscript search</td></tr>
+    <tr><td><code>Enter</code></td><td>Jump to first search result</td><td>Manuscript search</td></tr>
+    <tr><td><code>⌘↩</code></td><td>Save a captured idea</td><td>Idea Park</td></tr>
+  </tbody>
+</table>
+<p>In-field keys: <strong>Enter</strong> commits POV/Setting in the scene strip; clicking
+out of a beat summary or pin weight saves it.</p>
+
+<h2 id="s20">20. Troubleshooting</h2>
+<p><strong>"Quill.app is damaged" / "developer cannot be verified."</strong><br/>
+Gatekeeper quarantine, not a broken app. Run <code>xattr -cr /Applications/Quill.app</code>
+and open it again. (Goes away once the app is notarized with a Developer ID.)</p>
+<p><strong>The AI panel says "Mock provider."</strong><br/>
+You're offline-safe but not generating real prose. Set a real Chat provider in
+Settings → LLM providers, add a key, and Ping it.</p>
+<p><strong>My draft is blocked by the drift gate.</strong><br/>
+The scene's voice score is ≥ 70. Re-read your pinned references, fix a few lines by hand
+to pull the voice back, and retry. Override only if you mean it — it's logged.</p>
+<p><strong>Canon search returns nothing useful.</strong><br/>
+If the embeddings provider is on <strong>Mock</strong>, recall is term-bag-shaped. Switch
+to Gemini embeddings for real semantic search, then re-ingest if needed.</p>
+<p><strong>I deleted a note in Obsidian but it's still in canon.</strong><br/>
+The watcher ignores deletions on purpose (Obsidian's atomic saves would otherwise risk
+data loss). Open Canon → Indexed documents → <strong>Missing only</strong> →
+<strong>Prune missing</strong>, or delete the document directly.</p>
+<p><strong>The amber "auto-syncing as Public" banner won't go away.</strong><br/>
+Your vault is connected, a cloud provider is on, you have no privacy rules, and the
+default is Public. Add at least one folder rule or change the default off Public
+(Canon → Privacy rules).</p>
+<p><strong>Saves seem to fail.</strong><br/>
+Likely a permissions problem on <code>~/Library/Application Support/Quill/</code>. Check
+ownership; if you ever ran the app as root, <code>chown -R $(whoami)</code> the directory.</p>
+<p><strong>The drift gauge never appears.</strong><br/>
+You need at least one enabled reference pin in Research and ~30 words in the scene.</p>
+<p><strong>My voice fingerprint feels off.</strong><br/>
+Disable or re-weight pins in Research, or drop any that don't match your target tone. The
+fingerprint is just the weighted centroid of enabled pins.</p>
+
+<footer class="end">
+  Quill is a single-user tool you built for one job: finishing this book. When in doubt,
+  trust the loop — canon and voice and beats choose the target, the model renders a
+  candidate, the drift gate guards the gate, and you decide what stays.
+</footer>
+
+</div>
+</body>
+</html>

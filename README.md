@@ -8,22 +8,25 @@
 
 ## Status
 
-Currently at **v0.2.0**. The app boots, lets you create projects, ingest canon, manage a 15-beat sheet, pin reference passages for voice modeling, and draft scenes in a real editor with autosave, Git auto-commit, and a live voice-drift indicator. The AI drafting loop is wired end-to-end — a side-by-side panel in the Manuscript view assembles a context-bounded prompt (scene + beat + canon + voice anchors), enforces the voice-drift gate, calls your configured chat provider, and lets you accept the suggestion as an append or as a replacement for a selection. The Character Bible and Idea Park are live, with cross-link search across both manuscripts and canon.
+Currently at **v1.0.0**. Quill is a complete writing environment. You can create a project, ingest your worldbuilding canon (with a live Obsidian-vault watcher that auto-reingests on save), manage a 15-beat Save-the-Cat sheet, pin reference passages for voice modeling, and draft scenes in a real editor with debounced autosave, Git auto-commit, a live voice-drift gauge, a today's-words counter, drag-to-reorder scenes, a per-scene metadata strip (POV / setting / status / beat / plot threads), full-manuscript search, and one-click compile-to-Markdown.
 
-See [`docs/PRD.md`](docs/PRD.md) for the full plan and [`HANDOFF.md`](HANDOFF.md) for the deeper engineering migration guide.
+The AI drafting loop is wired end-to-end. A side-by-side panel assembles a context-bounded prompt from the scene, its beat, the POV character's Bible entry, setting-matched canon, tagged Idea Park notes, active plot threads, the top canon chunks, and your voice anchors — then enforces the voice-drift gate before any call. Suggestions come back into an **inline track-changes review** (sentence-level green/red diff with per-chunk accept/reject) so nothing reaches your manuscript without your say-so. The Character Bible, Idea Park, and Plot Threads "second brain" are live with cross-link search, and per-file privacy rules + a corpus inspector keep sensitive material out of cloud calls.
 
-| Phase                                | Status                                                                        |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| 0. Foundation                        | ✅ complete                                                                   |
-| 1. Canon ingestion                   | ✅ complete                                                                   |
-| 2. LLM provider layer                | ✅ complete                                                                   |
-| 3. Structural engine                 | ✅ complete                                                                   |
-| 4. Voice fingerprint                 | ✅ complete                                                                   |
-| 5. Drafting modes (MVP)              | ✅ complete (editor + autosave + drift gauge)                                 |
-| 6. Revision loop                     | ✅ complete (side-by-side draft panel + drift gate; inline track-changes next) |
-| 7. Second brain                      | ✅ complete (Character Bible + Idea Park + cross-links)                       |
-| 8. Distribution (signing/notarizing) | ⏳ pending — current builds are unsigned                                      |
-| 9. Local embeddings (optional)       | ⏳ pending                                                                    |
+See the [**user manual**](docs/MANUAL.md) ([HTML](docs/MANUAL.html)) for a complete walkthrough, [`docs/PRD.md`](docs/PRD.md) for the original plan, and [`HANDOFF.md`](HANDOFF.md) for the engineering history.
+
+| Phase                                | Status                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| 0. Foundation                        | ✅ complete                                                                     |
+| 1. Canon ingestion                   | ✅ complete                                                                     |
+| 2. LLM provider layer                | ✅ complete                                                                     |
+| 3. Structural engine                 | ✅ complete                                                                     |
+| 4. Voice fingerprint                 | ✅ complete                                                                     |
+| 5. Drafting + writing UX             | ✅ complete (editor, autosave, drift gauge, search, compile, scene metadata)    |
+| 5.x. Obsidian vault watcher          | ✅ complete (live watcher + privacy rules + corpus inspector)                   |
+| 6. Revision loop                     | ✅ complete (draft panel + drift gate + inline track-changes review)            |
+| 7. Second brain                      | ✅ complete (Character Bible + Idea Park + Plot Threads + cross-links)          |
+| 8. Distribution (signing/notarizing) | ⚪ not planned — builds are ad-hoc signed (see Gatekeeper note under Install)   |
+| 9. Local embeddings (optional)       | ⏳ pending                                                                      |
 
 ---
 
@@ -31,8 +34,8 @@ See [`docs/PRD.md`](docs/PRD.md) for the full plan and [`HANDOFF.md`](HANDOFF.md
 
 ### Option A — Use the prebuilt `.dmg` (recommended)
 
-1. Go to the [Releases page](https://github.com/ShamgarBN/writing-assistant/releases).
-2. Download `Quill_0.2.0_aarch64.dmg` (Apple Silicon only).
+1. Go to the [Releases page](https://github.com/ShamgarBN/quill/releases).
+2. Download `Quill_1.0.0_aarch64.dmg` (Apple Silicon only).
 3. Double-click the `.dmg`, drag **Quill.app** into your **Applications** folder.
 4. **First-launch Gatekeeper bypass.** The bundle is **ad-hoc signed** but does **not** have an Apple Developer ID yet (that's Phase 8). Because the DMG is downloaded via the browser, macOS sets the `com.apple.quarantine` extended attribute on the app, and modern macOS (Sonoma 14+ / Sequoia 15+) will refuse to open it with one of two dialogs:
    - **"Quill.app is damaged and can't be opened"** — Gatekeeper rejected it outright. The most reliable fix:
@@ -54,8 +57,8 @@ You'd do this if you don't trust the prebuilt artifact, want to develop, or you'
 
 ```bash
 # Prerequisites: Xcode CLT, Rust ≥ 1.78, Node ≥ 20, pnpm ≥ 9
-git clone https://github.com/ShamgarBN/writing-assistant.git
-cd writing-assistant
+git clone https://github.com/ShamgarBN/quill.git
+cd quill
 ./scripts/bootstrap.sh
 
 # Produce a release .app + .dmg in apps/desktop/src-tauri/target/release/bundle/
@@ -132,38 +135,41 @@ Open the **Manuscript** tab. Create a scene from the left rail, type into the ed
 
 ### 7. Draft with AI (Phase 6)
 
-With a scene open, click **Draft** in the Manuscript header. A side panel appears with five operations:
+With a scene open, click **Draft** in the Manuscript header. A side panel appears with three operations:
 
-- **Continue** — generate the next paragraph(s) of the scene from where the cursor is.
-- **Rewrite** — rewrite the current selection in your voice.
-- **Tighten** — shorten the selection while preserving meaning.
-- **Expand** — add a sentence or two of texture to the selection.
-- **Critique** — return craft notes (no prose) for the selection.
+- **Continue** — pick up the scene from where it ends and push toward the active beat.
+- **Rewrite** — replace the selected passage with a tighter version in your voice.
+- **Critique** — return craft notes (voice, pacing, continuity) for the selection — no prose to insert.
 
 Each call assembles its prompt from:
 
-- the scene text already on disk (the orchestrator reads from disk, not the editor buffer, so what's saved is what's sent),
+- the scene text already on disk (the orchestrator reads from disk, not the editor buffer, so what's saved is what's sent), plus the scene card (POV / setting / status),
 - the linked beat (label + canonical description),
+- the POV character's Character Bible entry, when the scene's POV names a known character,
+- setting-matched canon (Location / Cosmology chunks for the scene's setting field),
+- tagged Idea Park notes (`beat:`, `pov:`, `scene:` tags) and active (Open / Advancing) plot threads,
 - the top-K canon chunks ranked by cosine similarity (chunks tagged `do_not_send` are excluded automatically),
 - your top-N reference voice anchors (most-recently-pinned, weighted by length).
 
-Before you commit to the call, hit **Preview** to see exactly what categories of context will be sent and a token-budget estimate. The voice-drift gate runs against the candidate output: if the drift score is `> 0.7`, the suggestion is held back behind an explicit "Override and accept anyway" toggle and the top-three feature deltas are surfaced (e.g. "sentences are 2.3× longer than your voice"). Every call is recorded in `audit.jsonl` with operation, provider, model, included content categories, and token counts — never the content itself.
+Before you commit to the call, hit **Preview** to see exactly what categories of context will be sent and a token-budget estimate. The voice-drift gate runs against the current scene: if the drift score is `≥ 0.7`, the call is held back behind an explicit "Override the drift gate this once" toggle and the worst feature deltas are surfaced (e.g. "sentences are 2.3× longer than your voice"). Every call is recorded in `audit.jsonl` with operation, provider, model, included content categories, and token counts — never the content itself.
 
-Click **Append** to paste the candidate at the end of the scene, or **Replace** to swap the suggestion in for whatever you had selected. (Inline track-changes — green/red diff view with per-chunk accept / reject — is queued as the next priority. For now you can fall back to `git diff` between auto-commits.)
+For **Continue** and **Rewrite**, click **Review changes** to open the inline track-changes view: the suggestion is diffed against your scene sentence by sentence, additions in green and deletions in red, with per-chunk accept / reject (plus accept-all / reject-all / reset). **Apply** writes only your accepted result back into the scene; anything left pending is treated as rejected. **Critique** is read-only — you integrate the notes by hand.
 
-### 8. Capture characters and ideas (Phase 7)
+### 8. Capture characters, ideas, and plot threads (Phase 7)
 
-The **Bible** tab is the Character Bible: one card per character with name, aliases, role (protagonist / antagonist / mentor / love-interest / supporting / minor), arc one-liner, motivation, voice notes, and a `secrets` field that is automatically tagged as `do_not_send` so it never crosses the network. Each character card shows cross-links — every scene and canon chunk that mentions the character by name or alias (case-insensitive substring match), so you can audit consistency across the whole project at a glance.
+The **Character Bible** tab is one card per character: name, aliases, role (protagonist / antagonist / mentor / ally / love-interest / family / foil / supporting / minor), arc one-liner, motivation, voice notes, and a `secrets` field that is tagged `do_not_send` by default so it never crosses the network. Each card shows cross-links — every scene and canon chunk that mentions the character by name or alias — so you can audit consistency at a glance. When a scene's POV names a Bible character, that entry is auto-injected into the drafting prompt.
 
-The **Ideas** tab is the Idea Park: a tag-able capture buffer for fragments, beats, or "what if" thoughts you can't act on yet. Each card has its own `do_not_send` flag for spoiler-sensitive ideas. Filter by tag from the sidebar.
+The **Idea Park** tab is a tag-able capture buffer for fragments, beats, or "what if" thoughts. Each idea has its own `do_not_send` flag, and special tags (`beat:catalyst`, `pov:kaelan`, `scene:<id>`) surface the idea automatically in the matching AI draft. Filter by tag chips at the top.
 
-Both stores live as plain JSON under `<project>/bible/characters.json` and `<project>/ideas/ideas.json` and are picked up by the Git auto-commit on save.
+The **Plot Threads** tab tracks recurring arcs that must close by the book's end. Open / Advancing threads are injected into every draft (scene-linked ones marked `[linked]`); Resolved / Abandoned threads are kept for reference but excluded from AI context. Link threads to scenes from the Manuscript metadata strip.
+
+All three stores live as plain JSON under `<project>/bible/`, `<project>/ideas/`, and `<project>/threads/`, and are picked up by the Git auto-commit on save.
 
 ---
 
 ## Connecting Your Obsidian Vault
 
-Quill is designed to coexist with Obsidian as your "second brain." Today (Phase 5), the integration is **manual ingest with one-click reingest**; the live filesystem watcher lands in a future phase.
+Quill is designed to coexist with Obsidian as your "second brain." Point Quill at your vault directory and turn on the **live watcher** — files you save in Obsidian are re-ingested automatically (debounced). Manual one-click ingest still works for one-off files. Per-folder **privacy rules**, YAML-frontmatter overrides, and a **corpus inspector** gate what's allowed to reach a cloud LLM (see below).
 
 ### Recommended directory layout
 
@@ -216,11 +222,18 @@ You can re-ingest the same file at any time — Quill keys on the absolute file 
 
 ### Searching what you ingested
 
-The Canon tab has a search box: paste any query ("the dragon's true name," "what happened at the Battle of Three Crowns") and Quill returns the top-K most-similar chunks ranked by cosine similarity. This is the same retrieval that will feed the Phase-6 drafting prompts.
+The Canon tab has a search box: paste any query ("the dragon's true name," "what happened at the Battle of Three Crowns") and Quill returns the top-K most-similar chunks ranked by cosine similarity. This is the same retrieval that feeds the AI drafting prompts.
 
-### Coming soon (Phase 5.x)
+### Live vault watcher
 
-A live filesystem watcher that auto-reingests files as you save them in Obsidian. The Rust plumbing already exists at `apps/desktop/src-tauri/src/services/canon/watcher.rs`; the missing pieces are a settings field for the vault path, a Tauri command to start/stop the watcher, and a UI control in the Canon tab. See `HANDOFF.md` section 8 for the priority order.
+In the Canon tab, **Pick vault…** to choose your vault directory, then **Start watching**. Files you save in Obsidian are re-ingested automatically; new files are picked up too. The status line shows events received, files re-ingested, and the last change. Deletions are intentionally ignored (Obsidian saves atomically, so acting on "removed" events would risk data loss) — use the corpus inspector to prune chunks for files you've deleted. If a project has a saved vault path with auto-watch on, Quill resumes the watcher when you open it.
+
+### Privacy rules & corpus inspector
+
+- **Folder rules** map a folder name or path prefix to a sensitivity tier (e.g. `DM-Notes` → `do_not_send`). Saving a rule **retroactively re-tags** every matching chunk already in the index.
+- A note's **YAML frontmatter** wins over folder rules: add `quill-sensitivity: do_not_send` at the top of any Markdown file to lock it down regardless of location. Anything unmatched falls back to your project default.
+- The **corpus inspector** ("Indexed documents") lists every document with its sensitivity, lets you filter, bulk-retag, reveal sources in Finder, delete a document, or **prune missing** (chunks for files no longer on disk).
+- When a vault is connected, a cloud provider is selected, and no rules exist with the default still `public`, Quill shows a banner across the Manuscript header so you don't auto-sync private notes by accident.
 
 ---
 
@@ -247,21 +260,22 @@ Everything is a plain file you can grep, diff, or open in any editor:
 ~/Library/Application Support/Quill/
 ├─ projects/
 │  └─ <project_id>/
-│     ├─ project.json              # metadata
+│     ├─ project.json              # metadata + vault path / rules / default sensitivity
 │     ├─ manuscript/               # one .md per scene, prefixed with order
 │     │  ├─ 0000-front-matter.md
 │     │  ├─ 0001-scn_xxx.md
 │     │  └─ ...
 │     ├─ structure/
 │     │  ├─ beat_sheet.json
-│     │  └─ scenes.json            # scene metadata (titles, status, beats)
+│     │  └─ scenes.json            # scene metadata (title, POV, setting, status, beat, threads)
 │     ├─ canon/                    # ingested originals (kept for re-ingest)
 │     ├─ voice/
 │     │  └─ pins.json              # reference passages
 │     ├─ bible/
-│     │  └─ characters.json        # Character Bible (Phase 7)
+│     │  └─ characters.json        # Character Bible
 │     ├─ ideas/
-│     │  └─ ideas.json             # Idea Park (Phase 7)
+│     │  └─ ideas.json             # Idea Park
+│     ├─ threads/                  # Plot Threads
 │     └─ .git/                     # auto-commit history
 ├─ vectors.json                    # embedded canon chunks (per-project keyed)
 ├─ secrets/                        # Argon2id+AES-GCM-encrypted API keys
@@ -292,7 +306,7 @@ Settings → Cloud LLMs → change the provider dropdown. The change takes effec
 ## Repo layout
 
 ```
-writing-assistant/
+quill/
 ├─ apps/desktop/          # Tauri app (Rust core + React UI)
 ├─ docs/                  # PRD, architecture, privacy
 ├─ scripts/               # bootstrap, signing helpers, icons
@@ -310,7 +324,7 @@ See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for development setup and [`HAN
 | ---------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | Desktop shell          | Tauri 2.x (Rust + WebView)                                   | Small binary, native feel, no Electron tax                                                     |
 | UI                     | React 18 + TypeScript + Tailwind 3                           | Mature, hobby-friendly                                                                         |
-| Editor                 | Plain `<textarea>` (Phase 5 MVP); Lexical planned            | Simple is shippable; rich text lands with track-changes in Phase 6                             |
+| Editor                 | Plain `<textarea>` + sentence-diff track-changes overlay     | Simple is shippable; review mode renders an inline diff without a heavyweight rich-text engine  |
 | State                  | Zustand                                                      | Minimal, escape-hatch friendly                                                                 |
 | LLM (hobby phase)      | Google Gemini 2.5 Pro free tier; Groq Llama 3.3 70B fallback | Best free quality 2026; pluggable for paid Claude/GPT later                                    |
 | Embeddings (v1)        | Gemini Embedding API                                         | Phase 9 swaps to local `bge-m3` via `candle-transformers`                                      |
