@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import {
   AlertCircle,
   CheckCircle2,
@@ -24,6 +25,7 @@ import {
   Search,
   Shield,
   ShieldOff,
+  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -34,12 +36,14 @@ import type {
   ChunkRef,
   ChunkSensitivity,
   DocSummary,
+  ExtractionCompleteEvent,
   IngestReport,
   VaultRule,
   WatchStatus,
 } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { cn } from "@/lib/cn";
+import { errToString } from "@/lib/err";
 
 const KIND_OPTIONS: { value: CanonKind; label: string }[] = [
   { value: "lore", label: "Lore (default)" },
@@ -93,7 +97,7 @@ export function CanonView(): JSX.Element {
       const c = await ipc.canonCount(project.id);
       setCount(c);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errToString(e);
       setError(msg);
     }
   }, [project]);
@@ -128,7 +132,7 @@ export function CanonView(): JSX.Element {
       setReports((r) => [report, ...r].slice(0, 20));
       await refreshCount();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errToString(e);
       setError(msg);
     } finally {
       setBusy(false);
@@ -288,7 +292,7 @@ function CanonSearch({ projectId }: { projectId: string }): JSX.Element {
       });
       setHits(out);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errToString(e);
       setErr(msg);
     } finally {
       setBusy(false);
@@ -456,7 +460,7 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
         return next;
       });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setLoading(false);
     }
@@ -465,6 +469,86 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Track which docs are currently being extracted so each row can
+  // show a spinner. The `extracting` Set is fed by two Tauri events:
+  // `canon-extraction-started` adds, `canon-extraction-complete` removes.
+  // This covers both manual (Re-extract button) and auto (post-ingest)
+  // triggers — the user always gets a visible "in progress" signal.
+  const [extracting, setExtracting] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let unlistenStart: (() => void) | undefined;
+    let unlistenDone: (() => void) | undefined;
+    void listen<{ doc_id: string }>("canon-extraction-started", (e) => {
+      setExtracting((curr) => new Set(curr).add(e.payload.doc_id));
+      setErr(null);
+    }).then((fn) => {
+      unlistenStart = fn;
+    });
+    void listen<ExtractionCompleteEvent>("canon-extraction-complete", (e) => {
+      const { doc_id, report, error } = e.payload;
+      setExtracting((curr) => {
+        const next = new Set(curr);
+        next.delete(doc_id);
+        return next;
+      });
+      if (error) {
+        setErr(error);
+      } else if (report.skipped_do_not_send) {
+        setStatus("Extraction skipped — all chunks marked do-not-send.");
+      } else {
+        const added =
+          report.characters_added + report.ideas_added + report.threads_added;
+        const returned =
+          report.characters_returned + report.ideas_returned + report.threads_returned;
+        const chunksNote = `Read ${report.chunks_sent}/${report.chunks_total} chunks${report.truncated ? " (truncated)" : ""}.`;
+        if (added > 0) {
+          setStatus(
+            `Added ${report.characters_added} character${report.characters_added === 1 ? "" : "s"}, ${report.ideas_added} idea${report.ideas_added === 1 ? "" : "s"}, ${report.threads_added} thread${report.threads_added === 1 ? "" : "s"}. ${chunksNote}`,
+          );
+        } else if (returned > 0) {
+          setStatus(
+            `Model returned ${returned} candidate${returned === 1 ? "" : "s"} but all matched existing entries. ${chunksNote}`,
+          );
+        } else {
+          setStatus(
+            `Model returned no entities. ${chunksNote} Check Settings → Audit log for details.`,
+          );
+        }
+      }
+      void refresh();
+    }).then((fn) => {
+      unlistenDone = fn;
+    });
+    return () => {
+      if (unlistenStart) unlistenStart();
+      if (unlistenDone) unlistenDone();
+    };
+  }, [refresh]);
+
+  const onToggleExtraction = async (docId: string, enabled: boolean): Promise<void> => {
+    try {
+      await ipc.canonSetDocExtraction(projectId, docId, enabled);
+      await refresh();
+    } catch (e) {
+      setErr(errToString(e));
+    }
+  };
+
+  const onReExtract = async (docId: string): Promise<void> => {
+    try {
+      setExtracting((curr) => new Set(curr).add(docId));
+      await ipc.canonExtractDoc(projectId, docId);
+      // Status will land via the event listener.
+    } catch (e) {
+      setExtracting((curr) => {
+        const next = new Set(curr);
+        next.delete(docId);
+        return next;
+      });
+      setErr(errToString(e));
+    }
+  };
 
   const filtered = useMemo(
     () =>
@@ -509,7 +593,7 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
       setStatus("Document removed.");
       await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     }
   };
 
@@ -525,7 +609,7 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
       setStatus(`${pruned} doc${pruned === 1 ? "" : "s"} pruned.`);
       await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     }
   };
 
@@ -546,7 +630,7 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
       );
       await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBulkBusy(false);
     }
@@ -617,6 +701,50 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
         </div>
       </div>
 
+      {/* Extraction-in-progress banner */}
+      {extracting.size > 0 && (
+        <div className="flex items-center gap-2 border-b border-accent/30 bg-accent-subtle px-3 py-1.5 text-xs text-accent">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span className="font-medium">
+            AI extraction running for {extracting.size} doc
+            {extracting.size === 1 ? "" : "s"}…
+          </span>
+          <span className="text-ink-muted">
+            Reading chunks, identifying characters / locations / lore / threads.
+          </span>
+        </div>
+      )}
+
+      {/* Status / error banner */}
+      {(status || err) && (
+        <div
+          className={cn(
+            "flex items-center gap-2 border-b px-3 py-1.5 text-xs",
+            err
+              ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-200"
+              : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200",
+          )}
+        >
+          {err ? (
+            <AlertCircle className="h-3 w-3 shrink-0" />
+          ) : (
+            <CheckCircle2 className="h-3 w-3 shrink-0" />
+          )}
+          <span className="flex-1">{err ?? status}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setErr(null);
+              setStatus(null);
+            }}
+            className="text-current opacity-60 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Bulk action bar */}
       {selected.size > 0 && (
         <div className="flex items-center gap-2 border-b border-line-subtle px-3 py-2 text-xs">
@@ -650,18 +778,6 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
         </div>
       )}
 
-      {/* Status */}
-      {status && (
-        <div className="px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-300">
-          {status}
-        </div>
-      )}
-      {err && (
-        <div className="px-3 py-1.5 text-xs text-rose-700 dark:text-rose-300">
-          {err}
-        </div>
-      )}
-
       {/* List */}
       {filtered.length === 0 ? (
         <div className="px-3 py-6 text-center text-xs text-ink-faint">
@@ -685,7 +801,7 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
             <span className="w-20 text-right">Words</span>
             <span className="w-14 text-right">Chunks</span>
             <span className="w-24 text-center">Sensitivity</span>
-            <span className="w-16" />
+            <span className="w-32" />
           </div>
           <ul className="max-h-[480px] divide-y divide-line-subtle overflow-y-auto">
             {filtered.map((doc) => (
@@ -693,8 +809,13 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
                 key={doc.doc_id}
                 doc={doc}
                 selected={selected.has(doc.doc_id)}
+                extracting={extracting.has(doc.doc_id)}
                 onToggle={() => toggleOne(doc.doc_id)}
                 onDelete={() => void onDelete(doc.doc_id)}
+                onToggleExtraction={(enabled) =>
+                  void onToggleExtraction(doc.doc_id, enabled)
+                }
+                onReExtract={() => void onReExtract(doc.doc_id)}
               />
             ))}
           </ul>
@@ -707,13 +828,19 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
 function DocRow({
   doc,
   selected,
+  extracting,
   onToggle,
   onDelete,
+  onToggleExtraction,
+  onReExtract,
 }: {
   doc: DocSummary;
   selected: boolean;
+  extracting: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onToggleExtraction: (enabled: boolean) => void;
+  onReExtract: () => void;
 }): JSX.Element {
   const filename = doc.source_path.split("/").pop() || "(no path)";
   const parent = doc.source_path
@@ -767,7 +894,39 @@ function DocRow({
       >
         {SENSITIVITY_LABEL[doc.sensitivity]}
       </span>
-      <div className="flex w-16 items-center justify-end gap-0.5">
+      <div className="flex w-32 items-center justify-end gap-0.5">
+        <button
+          type="button"
+          onClick={() => onToggleExtraction(!doc.extraction_enabled)}
+          className={cn(
+            "qbtn-ghost h-6 w-6 p-0",
+            doc.extraction_enabled
+              ? "text-accent"
+              : "text-ink-faint opacity-60 hover:opacity-100",
+          )}
+          title={
+            doc.extraction_enabled
+              ? `AI extraction ON${doc.last_extracted_at ? ` · last run ${formatRelative(doc.last_extracted_at)}` : " · never run"}`
+              : "AI extraction OFF — click to enable"
+          }
+          aria-label="Toggle AI extraction for this document"
+        >
+          <Sparkles className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={onReExtract}
+          disabled={extracting || doc.sensitivity === "do_not_send"}
+          className="qbtn-ghost h-6 px-1.5 text-[10px] opacity-0 group-hover:opacity-100 disabled:opacity-30"
+          title={
+            doc.sensitivity === "do_not_send"
+              ? "Cannot extract from do-not-send chunks"
+              : "Re-run AI extraction for this document"
+          }
+          aria-label="Re-run AI extraction"
+        >
+          {extracting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Extract"}
+        </button>
         {doc.source_path && doc.exists_on_disk && (
           <button
             type="button"
@@ -855,7 +1014,7 @@ function VaultPrivacyCard(): JSX.Element {
     } catch (e) {
       setStatus({
         kind: "err",
-        message: e instanceof Error ? e.message : String(e),
+        message: errToString(e),
       });
     } finally {
       setSaving(false);
@@ -978,7 +1137,7 @@ function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
       const s = await ipc.canonWatchStatus(projectId);
       setStatus(s);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     }
   }, [projectId]);
 
@@ -1007,7 +1166,7 @@ function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
       if (typeof picked !== "string") return;
       await updateCurrentProject({ vault_path: picked });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     }
   }, [updateCurrentProject]);
 
@@ -1020,7 +1179,7 @@ function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
       }
       await updateCurrentProject({ vault_path: null });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     }
   }, [projectId, status, updateCurrentProject]);
 
@@ -1032,7 +1191,7 @@ function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
       const s = await ipc.canonWatchStart(projectId, vaultPath);
       setStatus(s);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBusy(false);
     }
@@ -1045,7 +1204,7 @@ function VaultWatcherCard({ projectId }: { projectId: string }): JSX.Element {
       await ipc.canonWatchStop(projectId);
       setStatus(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBusy(false);
     }

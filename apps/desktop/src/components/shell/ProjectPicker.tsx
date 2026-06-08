@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useApp } from "@/stores/app";
 import { Feather, Plus } from "lucide-react";
 import { WindowDragBar } from "@/components/shell/WindowDragBar";
+import { errToString } from "@/lib/err";
 
 export function ProjectPicker(): JSX.Element {
   const projects = useApp((s) => s.projects);
@@ -21,7 +22,7 @@ export function ProjectPicker(): JSX.Element {
       await createProject(trimmed);
       setName("");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBusy(false);
     }

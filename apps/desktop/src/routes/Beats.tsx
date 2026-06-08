@@ -23,6 +23,7 @@ import {
 } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { cn } from "@/lib/cn";
+import { errToString } from "@/lib/err";
 
 export function BeatsView(): JSX.Element {
   const project = useApp((s) => s.currentProject);
@@ -36,7 +37,7 @@ export function BeatsView(): JSX.Element {
       const s = await ipc.structureBeatSheetGet(project.id);
       setSheet(s);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errToString(e));
     }
   }, [project]);
 
@@ -86,7 +87,7 @@ export function BeatsView(): JSX.Element {
                   );
                   setSheet(s);
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e));
+                  setError(errToString(e));
                 }
               }}
             />
@@ -115,7 +116,7 @@ export function BeatsView(): JSX.Element {
               const s = await ipc.structureBeatSheetSetTarget(project.id, next);
               setSheet(s);
             } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
+              setError(errToString(e));
             }
           }}
         />
@@ -137,7 +138,7 @@ export function BeatsView(): JSX.Element {
                     });
                     setSheet(s);
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errToString(e));
                   }
                 }}
                 onSatisfied={async (satisfied) => {
@@ -147,7 +148,7 @@ export function BeatsView(): JSX.Element {
                     });
                     setSheet(s);
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errToString(e));
                   }
                 }}
                 onLocked={async (locked) => {
@@ -157,7 +158,7 @@ export function BeatsView(): JSX.Element {
                     });
                     setSheet(s);
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errToString(e));
                   }
                 }}
               />
@@ -397,7 +398,7 @@ function OutlineImportModal({
       const p = await ipc.structureOutlinePreview(text);
       setPreview(p);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBusy(false);
     }
@@ -410,7 +411,7 @@ function OutlineImportModal({
       await ipc.structureOutlineApply(projectId, text);
       onApplied();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errToString(e));
     } finally {
       setBusy(false);
     }

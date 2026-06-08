@@ -31,6 +31,7 @@ impl ProviderId {
     }
 }
 
+#[derive(Clone)]
 pub struct ProviderRegistry {
     pub secrets: Arc<SecretStore>,
 }
@@ -51,6 +52,23 @@ impl ProviderRegistry {
                 Ok(Arc::new(super::groq::GroqChat::new(key)))
             }
             ProviderId::Mock => Ok(Arc::new(super::mock::MockChatProvider::echo())),
+        }
+    }
+
+    /// Chat provider tuned for bulk structured-data extraction. Picks a
+    /// cheaper / free-tier model when the underlying provider supports
+    /// it (e.g. Gemini 2.5 Flash instead of Pro). For providers that
+    /// don't make this distinction, falls back to `chat()`.
+    pub fn chat_for_extraction(&self, id: ProviderId) -> Result<Arc<dyn ChatProvider>> {
+        match id {
+            ProviderId::Gemini => {
+                let key = self.require_key(id)?;
+                Ok(Arc::new(super::gemini::GeminiChat::with_model(
+                    key,
+                    super::gemini::EXTRACTION_MODEL.to_string(),
+                )))
+            }
+            _ => self.chat(id),
         }
     }
 

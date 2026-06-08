@@ -10,11 +10,13 @@
  * the list. Newest-first ordering by default.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Eye, EyeOff, Lightbulb, Plus, Send, Trash2 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
 import type { Idea, IdeaPatch } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
+import { AISuggestedBadge } from "@/components/shell/AISuggestedBadge";
 import { cn } from "@/lib/cn";
 
 const PATCH_DEBOUNCE_MS = 600;
@@ -42,6 +44,18 @@ export function IdeasView(): JSX.Element {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("canon-extraction-complete", () => {
+      void refresh();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [refresh]);
 
   const allTags = useMemo(() => {
@@ -266,6 +280,11 @@ function IdeaCard({
           : "border-line-subtle",
       )}
     >
+      {idea.ai_suggested && (
+        <div className="mb-1 flex justify-end">
+          <AISuggestedBadge sourceDocId={idea.source_doc_id} />
+        </div>
+      )}
       <textarea
         value={draft}
         onChange={(e) => {

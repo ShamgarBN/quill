@@ -67,7 +67,9 @@ export function PromptDialog({
           }}
           className="flex flex-col gap-3 px-5 py-4"
         >
-          {label && <label className="text-xs font-medium text-ink-muted">{label}</label>}
+          {label && (
+            <label className="text-xs font-medium text-ink-muted">{label}</label>
+          )}
           <input
             ref={inputRef}
             type="text"

@@ -82,6 +82,33 @@ pub struct CanonChunk {
     pub kind: CanonKind,
 }
 
+/// Per-document metadata that lives outside the vector index — currently
+/// just the extraction toggle + the last-extracted timestamp. Persisted
+/// as `<project>/canon/docs.json`. Defaulted on lookup so older docs
+/// without an entry transparently get `extraction_enabled = true`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocMeta {
+    pub doc_id: String,
+    #[serde(default = "default_true")]
+    pub extraction_enabled: bool,
+    #[serde(default)]
+    pub last_extracted_at: Option<DateTime<Utc>>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl DocMeta {
+    pub fn defaults_for(doc_id: &str) -> Self {
+        Self {
+            doc_id: doc_id.to_string(),
+            extraction_enabled: true,
+            last_extracted_at: None,
+        }
+    }
+}
+
 /// What retrieval returns: the chunk itself plus its similarity score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkRef {

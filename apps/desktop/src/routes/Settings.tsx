@@ -4,6 +4,7 @@ import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
 import type { AuditEntry, FontPreference, GenerationMode, ProviderId } from "@/types";
 import { cn } from "@/lib/cn";
+import { errToString } from "@/lib/err";
 import {
   AlertCircle,
   CheckCircle2,
@@ -280,7 +281,7 @@ function ProviderKeyRow({ provider }: { provider: ProviderId }): JSX.Element {
       const reply = await ipc.llmPing(provider);
       setPingState({ kind: "ok", reply });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errToString(e);
       setPingState({ kind: "err", message: msg });
     }
   };

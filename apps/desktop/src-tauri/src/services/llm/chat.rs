@@ -27,6 +27,18 @@ pub struct ChatRequest {
     pub max_tokens: u32,
     /// Optional stop sequences.
     pub stop: Vec<String>,
+    /// Request strict JSON output. Providers that support a JSON/structured
+    /// response mode (e.g. Gemini `responseMimeType`) enable it; others
+    /// ignore it. Used by the canon extraction pass.
+    #[serde(default)]
+    pub json_mode: bool,
+    /// Ask the provider to skip extended "thinking" / reasoning tokens.
+    /// Gemini 2.5 models think by default, and those tokens count against
+    /// the output budget — for bulk extraction that silently truncates
+    /// the JSON. Setting this disables thinking so the whole budget goes
+    /// to the actual answer. Ignored by providers without a thinking mode.
+    #[serde(default)]
+    pub disable_thinking: bool,
 }
 
 impl ChatRequest {
@@ -36,6 +48,8 @@ impl ChatRequest {
             temperature: 0.7,
             max_tokens: 1024,
             stop: Vec::new(),
+            json_mode: false,
+            disable_thinking: false,
         }
     }
 }

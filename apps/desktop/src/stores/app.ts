@@ -7,6 +7,7 @@ import type {
   ThemePreference,
 } from "@/types";
 import * as ipc from "@/lib/ipc";
+import { errToString } from "@/lib/err";
 
 export type RouteId =
   | "manuscript"
@@ -100,7 +101,7 @@ export const useApp = create<AppState>((set, get) => ({
         route: projects.length === 1 ? "manuscript" : "settings",
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errToString(e);
       set({ ready: true, bootError: msg });
     }
   },

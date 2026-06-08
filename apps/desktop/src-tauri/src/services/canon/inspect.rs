@@ -14,7 +14,10 @@
 
 use crate::error::Result;
 use crate::models::ChunkSensitivity;
+use crate::services::canon::docs::DocMetaStore;
+use crate::services::storage::ProjectStore;
 use crate::services::vector::VectorStore;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -36,12 +39,19 @@ pub struct DocSummary {
     /// Useful for distinguishing manually-ingested files (often outside
     /// the vault) from watcher-ingested ones.
     pub in_vault: bool,
+    /// Per-doc extraction toggle. Defaults true; set false via the
+    /// Corpus Inspector to skip this doc's chunks when the auto
+    /// extraction pass runs.
+    pub extraction_enabled: bool,
+    /// Last time the extraction pass completed for this doc, if ever.
+    pub last_extracted_at: Option<DateTime<Utc>>,
 }
 
 pub async fn list_documents(
     vectors: &dyn VectorStore,
     project_id: &str,
     vault_path: Option<&Path>,
+    projects: Option<&ProjectStore>,
 ) -> Result<Vec<DocSummary>> {
     let chunks = vectors.chunks_for_project(project_id).await?;
     // Group by doc_id, preserving stable ordering via BTreeMap.
@@ -61,6 +71,20 @@ pub async fn list_documents(
         }
     }
 
+    // Join in per-doc metadata (extraction toggle, last-extracted timestamp).
+    // Bulk-load once instead of fetching per doc.
+    let metas: Vec<crate::models::canon::DocMeta> = match projects {
+        Some(p) => DocMetaStore::new(p).list(project_id)?,
+        None => Vec::new(),
+    };
+    let meta_for = |doc_id: &str| -> (bool, Option<DateTime<Utc>>) {
+        metas
+            .iter()
+            .find(|m| m.doc_id == doc_id)
+            .map(|m| (m.extraction_enabled, m.last_extracted_at))
+            .unwrap_or((true, None))
+    };
+
     let mut out: Vec<DocSummary> = groups
         .into_iter()
         .map(|(doc_id, g)| {
@@ -69,6 +93,7 @@ pub async fn list_documents(
                 Some(vp) if !g.source_path.is_empty() => Path::new(&g.source_path).starts_with(vp),
                 _ => false,
             };
+            let (extraction_enabled, last_extracted_at) = meta_for(&doc_id);
             DocSummary {
                 doc_id,
                 source_path: g.source_path,
@@ -78,6 +103,8 @@ pub async fn list_documents(
                 mixed_sensitivity: g.mixed,
                 exists_on_disk,
                 in_vault,
+                extraction_enabled,
+                last_extracted_at,
             }
         })
         .collect();
@@ -93,7 +120,7 @@ pub async fn list_documents(
 /// Files without a recorded source_path (v0.2 chunks pre-dating that
 /// field) are left alone — we can't tell whether they're missing.
 pub async fn prune_missing(vectors: &dyn VectorStore, project_id: &str) -> Result<u64> {
-    let docs = list_documents(vectors, project_id, None).await?;
+    let docs = list_documents(vectors, project_id, None, None).await?;
     let mut pruned = 0u64;
     for doc in docs {
         if doc.source_path.is_empty() {
@@ -209,7 +236,7 @@ mod tests {
             .await
             .unwrap();
         let vault = PathBuf::from("/vault");
-        let docs = list_documents(&vectors, "p", Some(&vault)).await.unwrap();
+        let docs = list_documents(&vectors, "p", Some(&vault), None).await.unwrap();
         assert_eq!(docs.len(), 2);
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         assert_eq!(a.chunk_count, 2);
@@ -238,7 +265,7 @@ mod tests {
             ])
             .await
             .unwrap();
-        let docs = list_documents(&vectors, "p", None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None).await.unwrap();
         assert!(docs[0].mixed_sensitivity);
     }
 
@@ -277,7 +304,7 @@ mod tests {
             .unwrap();
         let pruned = prune_missing(&vectors, "p").await.unwrap();
         assert_eq!(pruned, 1);
-        let remaining = list_documents(&vectors, "p", None).await.unwrap();
+        let remaining = list_documents(&vectors, "p", None, None).await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].doc_id, "doc_a");
     }
@@ -312,7 +339,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(changed, 2);
-        let docs = list_documents(&vectors, "p", None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None).await.unwrap();
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         let b = docs.iter().find(|d| d.doc_id == "doc_b").unwrap();
         assert_eq!(a.sensitivity, ChunkSensitivity::DoNotSend);

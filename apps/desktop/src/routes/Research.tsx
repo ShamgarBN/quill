@@ -21,6 +21,7 @@ import type {
 } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { cn } from "@/lib/cn";
+import { errToString } from "@/lib/err";
 
 export function ResearchView(): JSX.Element {
   const project = useApp((s) => s.currentProject);
@@ -39,7 +40,7 @@ export function ResearchView(): JSX.Element {
       setPins(list);
       setFp(f);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errToString(e));
     }
   }, [project]);
 
@@ -101,7 +102,7 @@ export function ResearchView(): JSX.Element {
                 setCreating(false);
                 await refresh();
               } catch (e) {
-                setError(e instanceof Error ? e.message : String(e));
+                setError(errToString(e));
               }
             }}
           />
@@ -120,7 +121,7 @@ export function ResearchView(): JSX.Element {
                     await ipc.voicePinsUpdate(project.id, pin.id, patch);
                     await refresh();
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errToString(e));
                   }
                 }}
                 onDelete={async () => {
@@ -128,7 +129,7 @@ export function ResearchView(): JSX.Element {
                     await ipc.voicePinsDelete(project.id, pin.id);
                     await refresh();
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errToString(e));
                   }
                 }}
               />

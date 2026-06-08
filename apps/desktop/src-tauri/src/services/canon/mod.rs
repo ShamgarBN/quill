@@ -14,7 +14,9 @@
 //! - `watcher`  — Obsidian vault filesystem watcher (Phase 1.x)
 
 pub mod chunker;
+pub mod docs;
 pub mod extract;
+pub mod extraction;
 pub mod ingest;
 pub mod inspect;
 pub mod rules;
@@ -23,6 +25,8 @@ pub mod watcher;
 
 #[allow(unused_imports)]
 pub use chunker::{chunk_markdown, chunk_plain, Chunk, ChunkOptions};
+pub use docs::DocMetaStore;
+pub use extraction::{extract_and_merge, ExtractionReport};
 pub use ingest::{IngestReport, IngestService};
 pub use inspect::{list_documents, prune_missing, retag_documents, DocSummary};
 pub use rules::{reapply_rules, resolve_sensitivity};

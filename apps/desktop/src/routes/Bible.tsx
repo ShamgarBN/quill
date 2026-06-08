@@ -13,6 +13,7 @@
  * assembles.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Eye, EyeOff, Loader2, Plus, Trash2, Users2 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
@@ -20,6 +21,7 @@ import type { Character, CharacterPatch, CharacterRole, CrossLink } from "@/type
 import { CHARACTER_ROLE_LABELS } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { PromptDialog } from "@/components/shell/PromptDialog";
+import { AISuggestedBadge } from "@/components/shell/AISuggestedBadge";
 import { cn } from "@/lib/cn";
 
 const ROLE_OPTIONS: CharacterRole[] = [
@@ -59,6 +61,19 @@ export function BibleView(): JSX.Element {
 
   useEffect(() => {
     void refreshList();
+  }, [refreshList]);
+
+  // Refresh when the canon extraction pass adds new characters.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("canon-extraction-complete", () => {
+      void refreshList();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [refreshList]);
 
   const active = useMemo(
@@ -235,9 +250,12 @@ function CharacterRail({
               <button
                 type="button"
                 onClick={() => onPick(c.id)}
-                className="flex flex-1 flex-col items-start text-left"
+                className="flex min-w-0 flex-1 flex-col items-start text-left"
               >
-                <span className="truncate font-medium">{c.name}</span>
+                <span className="flex w-full items-center gap-1.5">
+                  <span className="truncate font-medium">{c.name}</span>
+                  {c.ai_suggested && <AISuggestedBadge sourceDocId={c.source_doc_id} />}
+                </span>
                 <span className="text-[10px] text-ink-faint">
                   {CHARACTER_ROLE_LABELS[c.role]}
                 </span>
