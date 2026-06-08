@@ -19,6 +19,7 @@ import * as ipc from "@/lib/ipc";
 import type { Character, CharacterPatch, CharacterRole, CrossLink } from "@/types";
 import { CHARACTER_ROLE_LABELS } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
+import { PromptDialog } from "@/components/shell/PromptDialog";
 import { cn } from "@/lib/cn";
 
 const ROLE_OPTIONS: CharacterRole[] = [
@@ -42,6 +43,7 @@ export function BibleView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [crossLinks, setCrossLinks] = useState<CrossLink[]>([]);
   const [crossLoading, setCrossLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const refreshList = useCallback(async () => {
     if (!project) return;
@@ -88,10 +90,14 @@ export function BibleView(): JSX.Element {
     };
   }, [project, active]);
 
-  const onCreate = async (): Promise<void> => {
+  const onCreate = (): void => {
     if (!project) return;
-    const name = window.prompt("Character name?")?.trim();
-    if (!name) return;
+    setCreating(true);
+  };
+
+  const submitCreate = async (name: string): Promise<void> => {
+    if (!project) return;
+    setCreating(false);
     try {
       const created = await ipc.brainCharacterCreate(project.id, name);
       await refreshList();
@@ -170,6 +176,16 @@ export function BibleView(): JSX.Element {
           />
         )}
       </div>
+      {creating && (
+        <PromptDialog
+          title="New character"
+          label="Name"
+          placeholder="Character name"
+          submitLabel="Create character"
+          onSubmit={(v) => void submitCreate(v)}
+          onCancel={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }
