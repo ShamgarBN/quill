@@ -1,7 +1,26 @@
 import { Sun, Moon, Monitor } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useApp } from "@/stores/app";
 import type { ThemePreference } from "@/types";
 import { cn } from "@/lib/cn";
+
+/**
+ * `data-tauri-drag-region` is supposed to make a node draggable, but on
+ * macOS WKWebView (Tauri 2) the attribute-based path is unreliable: it
+ * silently no-ops in builds where Tauri's mousedown handler isn't
+ * attached early enough, or when CSP / overlay layout interferes. We
+ * sidestep it by calling `startDragging()` explicitly on primary-button
+ * mousedown, ignoring clicks that land on real interactive controls.
+ */
+const dragOnMouseDown = (e: React.MouseEvent<HTMLElement>): void => {
+  if (e.button !== 0) return;
+  const target = e.target as HTMLElement | null;
+  if (target?.closest("button, a, input, select, textarea, [role='button']")) {
+    return;
+  }
+  e.preventDefault();
+  void getCurrentWindow().startDragging();
+};
 
 const THEMES: { id: ThemePreference; icon: typeof Sun; label: string }[] = [
   { id: "light", icon: Sun, label: "Light" },
@@ -18,6 +37,7 @@ export function TitleBar(): JSX.Element {
   return (
     <div
       data-tauri-drag-region
+      onMouseDown={dragOnMouseDown}
       className={cn(
         "app-chrome flex h-9 shrink-0 items-center justify-between",
         "border-b border-line-subtle bg-surface-subtle px-3",

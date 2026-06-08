@@ -21,6 +21,7 @@ import * as ipc from "@/lib/ipc";
 import type { Thread, ThreadPatch, ThreadStatus } from "@/types";
 import { THREAD_STATUS_LABEL } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
+import { PromptDialog } from "@/components/shell/PromptDialog";
 import { cn } from "@/lib/cn";
 
 const STATUS_OPTIONS: ThreadStatus[] = ["open", "advancing", "resolved", "abandoned"];
@@ -46,6 +47,7 @@ export function ThreadsView(): JSX.Element {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!project) return;
@@ -70,10 +72,14 @@ export function ThreadsView(): JSX.Element {
     [threads, activeId],
   );
 
-  const onCreate = async (): Promise<void> => {
+  const onCreate = (): void => {
     if (!project) return;
-    const title = window.prompt('Thread title? (e.g. "Kaelan\'s blood-debt")')?.trim();
-    if (!title) return;
+    setCreating(true);
+  };
+
+  const submitCreate = async (title: string): Promise<void> => {
+    if (!project) return;
+    setCreating(false);
     try {
       const t = await ipc.brainThreadCreate(project.id, title);
       await refresh();
@@ -148,6 +154,16 @@ export function ThreadsView(): JSX.Element {
           )}
         </div>
       </div>
+      {creating && (
+        <PromptDialog
+          title="New plot thread"
+          label="Title"
+          placeholder={`e.g. "Kaelan's blood-debt"`}
+          submitLabel="Create thread"
+          onSubmit={(v) => void submitCreate(v)}
+          onCancel={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }

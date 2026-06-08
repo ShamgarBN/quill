@@ -51,6 +51,7 @@ import { cn } from "@/lib/cn";
 import { DraftingPanel } from "@/routes/DraftingPanel";
 import { DiffReviewPane } from "@/components/editor/DiffReviewPane";
 import { SceneMetaStrip } from "@/components/editor/SceneMetaStrip";
+import { PromptDialog } from "@/components/shell/PromptDialog";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 /** Don't even ask the backend for a drift score below this many words. */
@@ -78,6 +79,7 @@ export function ManuscriptView(): JSX.Element {
   const [hasFingerprint, setHasFingerprint] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftingOpen, setDraftingOpen] = useState(false);
+  const [creatingScene, setCreatingScene] = useState(false);
   const [selection, setSelection] = useState<{ start: number; end: number }>({
     start: 0,
     end: 0,
@@ -259,18 +261,25 @@ export function ManuscriptView(): JSX.Element {
   }, [save, content, project, hasFingerprint]);
 
   // Manual scene CRUD handlers
-  const onCreateScene = useCallback(async () => {
+  const onCreateScene = useCallback(() => {
     if (!project) return;
-    try {
-      const title = window.prompt("New scene title?")?.trim();
-      if (!title) return;
-      const s = await ipc.structureSceneCreate(project.id, title);
-      await refreshScenes();
-      setActiveId(s.id);
-    } catch (e) {
-      setError(messageOf(e));
-    }
-  }, [project, refreshScenes]);
+    setCreatingScene(true);
+  }, [project]);
+
+  const submitCreateScene = useCallback(
+    async (title: string) => {
+      if (!project) return;
+      setCreatingScene(false);
+      try {
+        const s = await ipc.structureSceneCreate(project.id, title);
+        await refreshScenes();
+        setActiveId(s.id);
+      } catch (e) {
+        setError(messageOf(e));
+      }
+    },
+    [project, refreshScenes],
+  );
 
   const onDeleteScene = async (id: string) => {
     if (!project) return;
@@ -632,6 +641,16 @@ export function ManuscriptView(): JSX.Element {
           />
         )}
       </div>
+      {creatingScene && (
+        <PromptDialog
+          title="New scene"
+          label="Title"
+          placeholder="New scene title"
+          submitLabel="Create scene"
+          onSubmit={(v) => void submitCreateScene(v)}
+          onCancel={() => setCreatingScene(false)}
+        />
+      )}
     </div>
   );
 }
