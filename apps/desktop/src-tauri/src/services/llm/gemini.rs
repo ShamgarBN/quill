@@ -17,7 +17,16 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CHAT_MODEL: &str = "gemini-2.5-pro";
-pub const DEFAULT_EMBED_MODEL: &str = "text-embedding-004";
+/// Model used for bulk structured-data extraction (canon entity pass).
+/// Flash is fast, free-tier eligible, and plenty capable for the
+/// "read worldbuilding notes, output JSON" job. Pro is overkill and
+/// gated to paid tiers as of 2026.
+pub const EXTRACTION_MODEL: &str = "gemini-2.5-flash";
+/// Current Gemini embedding model. `text-embedding-004` was retired
+/// from v1beta in 2026 (returns HTTP 404). `gemini-embedding-001`
+/// defaults to 3072-dim vectors; we pin it to 768 via
+/// `outputDimensionality` so existing vector indices stay compatible.
+pub const DEFAULT_EMBED_MODEL: &str = "gemini-embedding-001";
 pub const EMBED_DIMS: usize = 768;
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -61,6 +70,19 @@ struct GenerationConfig {
     max_output_tokens: u32,
     #[serde(rename = "stopSequences", skip_serializing_if = "Vec::is_empty")]
     stop_sequences: Vec<String>,
+    /// Set to "application/json" to force well-formed JSON output.
+    #[serde(rename = "responseMimeType", skip_serializing_if = "Option::is_none")]
+    response_mime_type: Option<&'static str>,
+    /// Gemini 2.5 thinking control. `thinkingBudget: 0` disables the
+    /// reasoning pass so the full token budget goes to the answer.
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<ThinkingConfig>,
+}
+
+#[derive(Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "thinkingBudget")]
+    thinking_budget: u32,
 }
 
 #[derive(Serialize)]
@@ -153,6 +175,16 @@ impl ChatProvider for GeminiChat {
                 temperature: req.temperature,
                 max_output_tokens: req.max_tokens.min(8192),
                 stop_sequences: req.stop.clone(),
+                response_mime_type: if req.json_mode {
+                    Some("application/json")
+                } else {
+                    None
+                },
+                thinking_config: if req.disable_thinking {
+                    Some(ThinkingConfig { thinking_budget: 0 })
+                } else {
+                    None
+                },
             },
         };
 
@@ -237,6 +269,11 @@ struct EmbedSubrequest<'a> {
     content: GeminiContent<'a>,
     #[serde(rename = "taskType")]
     task_type: &'a str,
+    /// Pinned so the new gemini-embedding-001 model returns 768-dim
+    /// vectors (its native default is 3072), matching the
+    /// pre-existing index dimensionality.
+    #[serde(rename = "outputDimensionality")]
+    output_dimensionality: usize,
 }
 
 #[derive(Deserialize)]
@@ -274,6 +311,7 @@ impl EmbeddingsProvider for GeminiEmbeddings {
                         parts: vec![GeminiPart { text: t }],
                     },
                     task_type: "RETRIEVAL_DOCUMENT",
+                    output_dimensionality: EMBED_DIMS,
                 })
                 .collect(),
         };

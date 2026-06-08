@@ -21,6 +21,7 @@ import type {
   CompileOptions,
   CompileReport,
   CrossLink,
+  DocMeta,
   DocSummary,
   DraftPreview,
   DraftRequest,
@@ -169,6 +170,19 @@ export const canonRetagDocuments = (
   sensitivity: ChunkSensitivity,
 ): Promise<number> =>
   invoke<number>("canon_retag_documents", { projectId, docIds, sensitivity });
+
+/** Toggle whether canon entity extraction runs for one doc. */
+export const canonSetDocExtraction = (
+  projectId: string,
+  docId: string,
+  enabled: boolean,
+): Promise<DocMeta> =>
+  invoke<DocMeta>("canon_set_doc_extraction", { projectId, docId, enabled });
+
+/** Trigger an extraction pass for one doc; result lands via the
+ *  `canon-extraction-complete` Tauri event. */
+export const canonExtractDoc = (projectId: string, docId: string): Promise<void> =>
+  invoke<void>("canon_extract_doc", { projectId, docId });
 
 // ---------- LLM ----------
 

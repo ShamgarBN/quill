@@ -1,15 +1,22 @@
 //! Canon ingestion + retrieval commands.
 
 use crate::error::{QuillError, Result};
+use crate::models::canon::DocMeta;
 use crate::models::{CanonKind, ChunkRef, ChunkSensitivity};
 use crate::services::canon::{
-    list_documents, prune_missing, reapply_rules, resolve_sensitivity, retag_documents, DocSummary,
-    IngestReport, IngestService, VaultPolicy, WatchStatus,
+    extract_and_merge, list_documents, prune_missing, reapply_rules, resolve_sensitivity,
+    retag_documents, DocMetaStore, DocSummary, ExtractionReport, IngestReport, IngestService,
+    VaultPolicy, WatchStatus,
 };
-use crate::services::llm::ProviderId;
+use crate::services::llm::{AuditEntry, AuditLog, IncludedCategory, ProviderId};
+use crate::services::storage::ProjectStore;
+use crate::services::vector::VectorStore;
+use chrono::Utc;
+use std::sync::Arc;
 use crate::state::AppState;
+use serde_json::json;
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 /// Resolve the configured embeddings provider from settings.
 async fn embedder_for(
@@ -29,6 +36,7 @@ async fn embedder_for(
 #[tauri::command]
 pub async fn canon_ingest_file(
     state: State<'_, AppState>,
+    app: AppHandle,
     project_id: String,
     path: String,
     kind: Option<CanonKind>,
@@ -53,8 +61,202 @@ pub async fn canon_ingest_file(
         }
     };
     let svc = IngestService::new(&*embedder, &*state.vectors);
-    svc.ingest_file(&project_id, &path_buf, kind, resolved_sensitivity)
-        .await
+    let report = svc
+        .ingest_file(&project_id, &path_buf, kind, resolved_sensitivity)
+        .await?;
+
+    // Background entity extraction. Fire-and-forget so the IPC call
+    // returns promptly; the UI gets refreshed via the
+    // `canon-extraction-complete` event when the LLM round-trip lands.
+    let outcome = schedule_extraction(
+        &app,
+        &state,
+        &project_id,
+        &report.document.id,
+        ExtractionTrigger::Auto,
+    );
+    if let ScheduleOutcome::SkippedNoProvider(reason) = outcome {
+        emit_skip(&app, &report.document.id, reason);
+    }
+
+    Ok(report)
+}
+
+/// Why an extraction run was scheduled — drives whether we skip when
+/// extraction is toggled off (Auto) or force regardless (Manual).
+#[derive(Debug, Clone, Copy)]
+enum ExtractionTrigger {
+    Auto,
+    Manual,
+}
+
+/// Result of scheduling an extraction run.
+#[derive(Debug, Clone, Copy)]
+enum ScheduleOutcome {
+    /// Background task spawned successfully — completion will land via
+    /// `canon-extraction-complete`.
+    Spawned,
+    /// Skipped because the user opted this doc out of extraction.
+    SkippedDisabled,
+    /// Skipped because the chat provider is Mock or unconfigured. The
+    /// caller (or auto path) emits a `complete` event so the UI can
+    /// surface a friendly error.
+    SkippedNoProvider(&'static str),
+}
+
+/// Spawn the background extraction task. Clones owned handles so the
+/// task can outlive this command. Returns a status so callers can
+/// surface "no provider" errors synchronously instead of leaving the
+/// UI spinning indefinitely.
+fn schedule_extraction(
+    app: &AppHandle,
+    state: &AppState,
+    project_id: &str,
+    doc_id: &str,
+    trigger: ExtractionTrigger,
+) -> ScheduleOutcome {
+    // Quick gate: respect per-doc extraction toggle for Auto runs.
+    if matches!(trigger, ExtractionTrigger::Auto) {
+        let meta = DocMetaStore::new(&state.projects)
+            .get(project_id, doc_id)
+            .unwrap_or_else(|_| DocMeta::defaults_for(doc_id));
+        if !meta.extraction_enabled {
+            return ScheduleOutcome::SkippedDisabled;
+        }
+    }
+
+    // Resolve the chat provider from settings. If it's missing or Mock,
+    // we have nothing to call — extraction relies on real-LLM JSON output.
+    let settings = match state.settings_store.load_or_init() {
+        Ok(s) => s,
+        Err(_) => {
+            return ScheduleOutcome::SkippedNoProvider(
+                "Could not load settings to resolve chat provider.",
+            );
+        }
+    };
+    let chat_id = settings.chat_provider;
+    if matches!(chat_id, ProviderId::Mock) {
+        return ScheduleOutcome::SkippedNoProvider(
+            "No chat provider configured — set one in Settings → Privacy to enable AI extraction.",
+        );
+    }
+    let chat = match state.providers.chat_for_extraction(chat_id) {
+        Ok(c) => c,
+        Err(_) => {
+            return ScheduleOutcome::SkippedNoProvider(
+                "Chat provider API key missing — add it in Settings → Privacy.",
+            );
+        }
+    };
+
+    let projects = state.projects.clone();
+    let vectors = state.vectors.clone();
+    let audit = state.audit.clone();
+    let project_id_owned = project_id.to_string();
+    let doc_id_owned = doc_id.to_string();
+    let app_owned = app.clone();
+
+    // Announce immediately so the UI can show a spinner / progress chip.
+    let _ = app.emit(
+        "canon-extraction-started",
+        json!({ "project_id": project_id_owned, "doc_id": doc_id_owned }),
+    );
+
+    tokio::spawn(async move {
+        let provider_name = chat.provider_id().to_string();
+        let model_name = chat.model_id().to_string();
+        let outcome = run_extraction(
+            &projects,
+            vectors.as_ref(),
+            chat.as_ref(),
+            &project_id_owned,
+            &doc_id_owned,
+        )
+        .await;
+        // Always write an audit entry so the user can see what happened
+        // in Settings → Audit log — even when extraction failed or found
+        // nothing. That's the diagnostic backstop.
+        write_extraction_audit(&audit, &provider_name, &model_name, &project_id_owned, &outcome);
+        let payload = match outcome {
+            Ok(report) => json!({
+                "doc_id": doc_id_owned,
+                "report": report,
+                "error": serde_json::Value::Null,
+            }),
+            Err(e) => json!({
+                "doc_id": doc_id_owned,
+                "report": ExtractionReport::default(),
+                "error": e.to_string(),
+            }),
+        };
+        let _ = app_owned.emit("canon-extraction-complete", payload);
+    });
+    ScheduleOutcome::Spawned
+}
+
+/// Append a single audit row for an extraction attempt. Best-effort —
+/// audit failures are logged but never bubble up to the user.
+fn write_extraction_audit(
+    audit: &Arc<AuditLog>,
+    provider: &str,
+    model: &str,
+    project_id: &str,
+    outcome: &Result<ExtractionReport>,
+) {
+    let (success, error, tokens_out) = match outcome {
+        Ok(r) => {
+            let total = r.characters_added + r.ideas_added + r.threads_added;
+            (true, None, total)
+        }
+        Err(e) => (false, Some(e.to_string()), 0),
+    };
+    let entry = AuditEntry {
+        timestamp: Utc::now(),
+        provider: provider.to_string(),
+        model: model.to_string(),
+        operation: "canon_extraction".to_string(),
+        project_id: Some(project_id.to_string()),
+        scene_id: None,
+        tokens_in: 0,
+        tokens_out,
+        included: vec![IncludedCategory::CanonTopK],
+        success,
+        error,
+    };
+    if let Err(e) = audit.append(&entry) {
+        tracing::warn!(error = %e, "canon extraction audit append failed");
+    }
+}
+
+/// Emit a synthetic `canon-extraction-complete` so the UI can clear
+/// any pending state and show a friendly error. Used when the run was
+/// skipped synchronously and no background task will fire one.
+fn emit_skip(app: &AppHandle, doc_id: &str, reason: &str) {
+    let _ = app.emit(
+        "canon-extraction-complete",
+        json!({
+            "doc_id": doc_id,
+            "report": ExtractionReport::default(),
+            "error": reason,
+        }),
+    );
+}
+
+async fn run_extraction(
+    projects: &ProjectStore,
+    vectors: &dyn VectorStore,
+    chat: &dyn crate::services::llm::ChatProvider,
+    project_id: &str,
+    doc_id: &str,
+) -> Result<ExtractionReport> {
+    let chunks = vectors
+        .chunks_for_project(project_id)
+        .await?
+        .into_iter()
+        .filter(|c| c.doc_id == doc_id)
+        .collect::<Vec<_>>();
+    extract_and_merge(project_id, doc_id, &chunks, chat, projects).await
 }
 
 #[tauri::command]
@@ -191,18 +393,22 @@ pub async fn canon_list_documents(
 ) -> Result<Vec<DocSummary>> {
     let project = state.projects.open(&project_id)?;
     let vault_path = project.vault_path.as_deref().map(Path::new);
-    list_documents(&*state.vectors, &project_id, vault_path).await
+    list_documents(&*state.vectors, &project_id, vault_path, Some(&state.projects)).await
 }
 
 /// Remove every chunk belonging to a document. Returns the count of
-/// chunks that were removed (mostly diagnostic).
+/// chunks that were removed (mostly diagnostic). Also drops the doc's
+/// metadata entry so toggle state doesn't leak across re-ingests of a
+/// freshly-different file at the same path.
 #[tauri::command]
 pub async fn canon_delete_document(
     state: State<'_, AppState>,
-    _project_id: String,
+    project_id: String,
     doc_id: String,
 ) -> Result<u64> {
-    state.vectors.delete_by_doc(&doc_id).await
+    let removed = state.vectors.delete_by_doc(&doc_id).await?;
+    let _ = DocMetaStore::new(&state.projects).forget(&project_id, &doc_id);
+    Ok(removed)
 }
 
 /// Walk every doc in the project; for any whose source file no longer
@@ -222,4 +428,41 @@ pub async fn canon_retag_documents(
     sensitivity: ChunkSensitivity,
 ) -> Result<u64> {
     retag_documents(&*state.vectors, &project_id, &doc_ids, sensitivity).await
+}
+
+// ---------- Entity extraction controls ----------
+
+/// Toggle whether the auto-extraction pass runs for this doc. When false,
+/// re-ingesting / vault-watcher updates / manual triggers all skip it.
+#[tauri::command]
+pub async fn canon_set_doc_extraction(
+    state: State<'_, AppState>,
+    project_id: String,
+    doc_id: String,
+    enabled: bool,
+) -> Result<DocMeta> {
+    DocMetaStore::new(&state.projects).set_extraction_enabled(&project_id, &doc_id, enabled)
+}
+
+/// Manually run extraction for a single doc. Useful for re-extracting
+/// after editing a doc, or after enabling extraction for a doc that
+/// was previously opted out. Returns the report so the UI can display
+/// counts; also emits `canon-extraction-complete` for parity with the
+/// auto path.
+#[tauri::command]
+pub async fn canon_extract_doc(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    project_id: String,
+    doc_id: String,
+) -> Result<()> {
+    match schedule_extraction(&app, &state, &project_id, &doc_id, ExtractionTrigger::Manual) {
+        ScheduleOutcome::Spawned => Ok(()),
+        ScheduleOutcome::SkippedDisabled => Err(QuillError::InvalidArgument(
+            "AI extraction is disabled for this document; enable it first.".into(),
+        )),
+        ScheduleOutcome::SkippedNoProvider(reason) => {
+            Err(QuillError::InvalidArgument(reason.to_string()))
+        }
+    }
 }

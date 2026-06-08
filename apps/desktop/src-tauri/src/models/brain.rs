@@ -63,6 +63,15 @@ pub struct Character {
     pub secrets_do_not_send: bool,
     #[serde(default)]
     pub arc_one_liner: String,
+    /// True when this entry was created by the canon extraction pass
+    /// (not by the user). Surfaced in the UI as a small "AI" badge so
+    /// the user can spot machine-suggested entries at a glance.
+    #[serde(default)]
+    pub ai_suggested: bool,
+    /// `doc_id` of the canon document this entry was extracted from.
+    /// Used to dedupe on re-ingest and link back to the source.
+    #[serde(default)]
+    pub source_doc_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -85,6 +94,8 @@ impl Character {
             secrets: String::new(),
             secrets_do_not_send: true,
             arc_one_liner: String::new(),
+            ai_suggested: false,
+            source_doc_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -150,6 +161,10 @@ pub struct Idea {
     /// don't want spoiled by retrieval.
     #[serde(default)]
     pub do_not_send: bool,
+    #[serde(default)]
+    pub ai_suggested: bool,
+    #[serde(default)]
+    pub source_doc_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -163,6 +178,8 @@ impl Idea {
             text: text.to_string(),
             tags: Vec::new(),
             do_not_send: false,
+            ai_suggested: false,
+            source_doc_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -224,6 +241,10 @@ pub struct Thread {
     pub description: String,
     #[serde(default)]
     pub status: ThreadStatus,
+    #[serde(default)]
+    pub ai_suggested: bool,
+    #[serde(default)]
+    pub source_doc_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -237,6 +258,8 @@ impl Thread {
             title: title.to_string(),
             description: String::new(),
             status: ThreadStatus::Open,
+            ai_suggested: false,
+            source_doc_id: None,
             created_at: now,
             updated_at: now,
         }

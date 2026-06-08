@@ -15,6 +15,7 @@
  * excluded from AI context.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { GitBranch, Plus, Trash2 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
@@ -22,6 +23,7 @@ import type { Thread, ThreadPatch, ThreadStatus } from "@/types";
 import { THREAD_STATUS_LABEL } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { PromptDialog } from "@/components/shell/PromptDialog";
+import { AISuggestedBadge } from "@/components/shell/AISuggestedBadge";
 import { cn } from "@/lib/cn";
 
 const STATUS_OPTIONS: ThreadStatus[] = ["open", "advancing", "resolved", "abandoned"];
@@ -65,6 +67,18 @@ export function ThreadsView(): JSX.Element {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("canon-extraction-complete", () => {
+      void refresh();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [refresh]);
 
   const active = useMemo(
@@ -218,9 +232,14 @@ function ThreadRail({
               <button
                 type="button"
                 onClick={() => onPick(t.id)}
-                className="flex flex-1 flex-col items-start text-left"
+                className="flex min-w-0 flex-1 flex-col items-start text-left"
               >
-                <span className="truncate font-medium">{t.title || "(untitled)"}</span>
+                <span className="flex w-full items-center gap-1.5">
+                  <span className="truncate font-medium">
+                    {t.title || "(untitled)"}
+                  </span>
+                  {t.ai_suggested && <AISuggestedBadge sourceDocId={t.source_doc_id} />}
+                </span>
                 <span className={cn("truncate text-[10px]", STATUS_TONE[t.status])}>
                   {THREAD_STATUS_LABEL[t.status]}
                 </span>

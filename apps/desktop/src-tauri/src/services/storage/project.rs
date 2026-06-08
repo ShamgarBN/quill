@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 const PROJECTS_DIR: &str = "projects";
 const PROJECT_FILE: &str = "project.json";
 
+#[derive(Clone)]
 pub struct ProjectStore {
     root: PathBuf,
 }

@@ -63,6 +63,8 @@ pub fn run() {
             commands::canon_delete_document,
             commands::canon_prune_missing,
             commands::canon_retag_documents,
+            commands::canon_set_doc_extraction,
+            commands::canon_extract_doc,
             commands::llm_provider_status,
             commands::llm_ping,
             commands::audit_tail,

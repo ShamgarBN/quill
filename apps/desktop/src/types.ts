@@ -67,6 +67,37 @@ export interface DocSummary {
   mixed_sensitivity: boolean;
   exists_on_disk: boolean;
   in_vault: boolean;
+  /** Per-doc toggle for canon entity extraction. Defaults true. */
+  extraction_enabled: boolean;
+  /** ISO timestamp of the last completed extraction pass, if any. */
+  last_extracted_at: string | null;
+}
+
+export interface DocMeta {
+  doc_id: string;
+  extraction_enabled: boolean;
+  last_extracted_at: string | null;
+}
+
+export interface ExtractionReport {
+  doc_id: string;
+  characters_added: number;
+  ideas_added: number;
+  threads_added: number;
+  skipped_do_not_send: boolean;
+  truncated: boolean;
+  chunks_total: number;
+  chunks_sent: number;
+  characters_returned: number;
+  ideas_returned: number;
+  threads_returned: number;
+}
+
+/** Payload of the `canon-extraction-complete` Tauri event. */
+export interface ExtractionCompleteEvent {
+  doc_id: string;
+  report: ExtractionReport;
+  error: string | null;
 }
 
 export interface WatchStatus {
@@ -407,6 +438,10 @@ export interface Character {
   secrets: string;
   secrets_do_not_send: boolean;
   arc_one_liner: string;
+  /** True when this entry was created by canon entity extraction. */
+  ai_suggested: boolean;
+  /** doc_id this entry was extracted from, if any. */
+  source_doc_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -428,6 +463,8 @@ export interface Idea {
   text: string;
   tags: string[];
   do_not_send: boolean;
+  ai_suggested: boolean;
+  source_doc_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -446,6 +483,8 @@ export interface Thread {
   title: string;
   description: string;
   status: ThreadStatus;
+  ai_suggested: boolean;
+  source_doc_id: string | null;
   created_at: string;
   updated_at: string;
 }

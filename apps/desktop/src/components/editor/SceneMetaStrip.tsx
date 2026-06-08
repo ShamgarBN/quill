@@ -25,6 +25,7 @@ import {
   type Thread,
 } from "@/types";
 import { cn } from "@/lib/cn";
+import { errToString } from "@/lib/err";
 
 const STATUS_OPTIONS: { value: SceneStatus; label: string }[] = [
   { value: "outlined", label: "Outlined" },
@@ -93,7 +94,7 @@ export function SceneMetaStrip({
       const updated = await ipc.structureSceneUpdate(projectId, scene.id, patch);
       onSceneUpdated(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errToString(e));
     }
   };
 
