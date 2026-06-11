@@ -12,6 +12,22 @@ export type FontPreference = "charter" | "jetbrains-mono";
 
 export type GenerationMode = "scene" | "paragraph" | "sentence";
 
+/** Target readership band — calibrates drafting, critique, and the
+ *  editor's readability indicator. */
+export type AgeBand = "middle-grade" | "young-adult";
+
+export const AGE_BAND_LABEL: Record<AgeBand, string> = {
+  "middle-grade": "Middle grade (8–12)",
+  "young-adult": "Young adult (13–18)",
+};
+
+/** Comfortable Flesch-Kincaid grade range per band. Outside the range the
+ *  editor's readability chip turns amber as a nudge, not an error. */
+export const AGE_BAND_GRADE_RANGE: Record<AgeBand, [number, number]> = {
+  "middle-grade": [3, 6],
+  "young-adult": [5, 9],
+};
+
 export type ProviderId = "gemini" | "groq" | "mock";
 
 export type CanonKind =
@@ -121,6 +137,7 @@ export interface Settings {
   show_what_gets_sent: boolean;
   chat_provider: ProviderId;
   embedding_provider: ProviderId;
+  target_age_band: AgeBand;
 }
 
 export interface SettingsPatch {
@@ -131,6 +148,7 @@ export interface SettingsPatch {
   show_what_gets_sent?: boolean;
   chat_provider?: ProviderId;
   embedding_provider?: ProviderId;
+  target_age_band?: AgeBand;
 }
 
 export interface CommitInfo {

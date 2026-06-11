@@ -28,6 +28,20 @@ pub enum GenerationMode {
     Sentence,
 }
 
+/// Target readership band. "8-18" is two different markets: middle grade
+/// and YA differ in vocabulary, sentence complexity, content lines, and
+/// theme depth. The drafting/critique prompts calibrate to this, and the
+/// editor's readability indicator scores against it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgeBand {
+    /// Ages 8-12.
+    MiddleGrade,
+    /// Ages 13-18.
+    #[default]
+    YoungAdult,
+}
+
 /// User-facing settings. Persisted as plain JSON in `<data>/settings.json`.
 ///
 /// Sensitive values (API keys etc.) DO NOT live here — they go through
@@ -45,6 +59,8 @@ pub struct Settings {
     pub chat_provider: ProviderId,
     /// Active embeddings provider. Default Mock; user opts into Gemini.
     pub embedding_provider: ProviderId,
+    /// Target readership band for drafting, critique, and readability.
+    pub target_age_band: AgeBand,
 }
 
 impl Default for Settings {
@@ -67,6 +83,7 @@ impl Settings {
             show_what_gets_sent: true,
             chat_provider: ProviderId::Mock,
             embedding_provider: ProviderId::Mock,
+            target_age_band: AgeBand::YoungAdult,
         }
     }
 }
@@ -82,6 +99,7 @@ pub struct SettingsPatch {
     pub show_what_gets_sent: Option<bool>,
     pub chat_provider: Option<ProviderId>,
     pub embedding_provider: Option<ProviderId>,
+    pub target_age_band: Option<AgeBand>,
 }
 
 impl SettingsPatch {
@@ -106,6 +124,9 @@ impl SettingsPatch {
         }
         if let Some(v) = self.embedding_provider {
             s.embedding_provider = v;
+        }
+        if let Some(v) = self.target_age_band {
+            s.target_age_band = v;
         }
     }
 }

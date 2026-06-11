@@ -2,7 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { ViewHeader } from "@/routes/Manuscript";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
-import type { AuditEntry, FontPreference, GenerationMode, ProviderId } from "@/types";
+import type {
+  AgeBand,
+  AuditEntry,
+  FontPreference,
+  GenerationMode,
+  ProviderId,
+} from "@/types";
 import { cn } from "@/lib/cn";
 import { errToString } from "@/lib/err";
 import {
@@ -108,6 +114,21 @@ export function SettingsView(): JSX.Element {
                 ]}
                 onChange={(mode: GenerationMode) =>
                   void updateSettings({ default_generation_mode: mode })
+                }
+              />
+            </Row>
+            <Row
+              label="Target readership"
+              hint="Calibrates AI drafting/critique and the editor's reading-grade indicator"
+            >
+              <SegControl
+                value={settings.target_age_band}
+                options={[
+                  { id: "middle-grade", label: "Middle grade (8–12)" },
+                  { id: "young-adult", label: "Young adult (13–18)" },
+                ]}
+                onChange={(target_age_band: AgeBand) =>
+                  void updateSettings({ target_age_band })
                 }
               />
             </Row>

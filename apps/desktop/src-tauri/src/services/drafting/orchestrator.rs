@@ -5,6 +5,7 @@
 use crate::error::{QuillError, Result};
 use crate::models::brain::{Character, Idea, Thread, WorldEntry};
 use crate::models::canon::{CanonKind, ChunkRef};
+use crate::models::settings::AgeBand;
 use crate::models::structure::{Beat, Scene};
 use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore, WorldStore};
 use crate::services::canon::IngestService;
@@ -124,6 +125,8 @@ pub struct DraftingService<'a> {
     pub embedder: Arc<dyn EmbeddingsProvider>,
     pub providers: &'a ProviderRegistry,
     pub audit: Arc<AuditLog>,
+    /// Target readership band from Settings; calibrates the system prompt.
+    pub age_band: AgeBand,
 }
 
 impl<'a> DraftingService<'a> {
@@ -162,6 +165,7 @@ impl<'a> DraftingService<'a> {
 
         let inputs = PromptInputs {
             operation: req.operation,
+            age_band: self.age_band,
             instruction: &req.instruction,
             beat: beat.as_ref(),
             beat_label: beat_label.as_deref(),
@@ -245,6 +249,7 @@ impl<'a> DraftingService<'a> {
 
         let inputs = PromptInputs {
             operation: req.operation,
+            age_band: self.age_band,
             instruction: &req.instruction,
             beat: beat.as_ref(),
             beat_label: beat_label.as_deref(),
@@ -762,6 +767,7 @@ mod tests {
             embedder: h.embedder.clone(),
             providers: &h.providers,
             audit: h.audit.clone(),
+            age_band: AgeBand::YoungAdult,
         }
     }
 
