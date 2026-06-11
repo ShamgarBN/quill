@@ -568,6 +568,24 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
   const totalChunks = docs.reduce((acc, d) => acc + d.chunk_count, 0);
   const totalWords = docs.reduce((acc, d) => acc + d.word_count, 0);
   const missingCount = docs.filter((d) => !d.exists_on_disk).length;
+  const staleCount = docs.filter((d) => d.embedding_stale && d.exists_on_disk).length;
+  const [reembedding, setReembedding] = useState(false);
+
+  const onReembedStale = async (): Promise<void> => {
+    setReembedding(true);
+    setStatus(null);
+    try {
+      const n = await ipc.canonReingestStale(projectId);
+      setStatus(
+        `Re-embedded ${n} doc${n === 1 ? "" : "s"} with the current embedding model.`,
+      );
+      await refresh();
+    } catch (e) {
+      setErr(errToString(e));
+    } finally {
+      setReembedding(false);
+    }
+  };
 
   const toggleOne = (docId: string): void => {
     setSelected((curr) => {
@@ -701,6 +719,22 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
               title="Delete chunks for files that no longer exist on disk"
             >
               <Trash2 className="mr-1 h-3 w-3" /> Prune missing
+            </button>
+          )}
+          {staleCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void onReembedStale()}
+              disabled={reembedding}
+              className="qbtn-ghost h-7 px-2 text-xs text-amber-700 dark:text-amber-300"
+              title="These docs were embedded with an older model — search against them is degraded until re-ingested. Kind and sensitivity are preserved."
+            >
+              {reembedding ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1 h-3 w-3" />
+              )}
+              Re-embed stale ({staleCount})
             </button>
           )}
         </div>
@@ -880,6 +914,14 @@ function DocRow({
               title="Chunks of this document have different sensitivity tags"
             >
               mixed
+            </span>
+          )}
+          {doc.embedding_stale && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+              title="Embedded with an older model — search against this doc is degraded. Use 'Re-embed stale' in the toolbar."
+            >
+              stale embeds
             </span>
           )}
         </div>

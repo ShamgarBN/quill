@@ -430,7 +430,61 @@ pub async fn canon_list_documents(
 ) -> Result<Vec<DocSummary>> {
     let project = state.projects.open(&project_id)?;
     let vault_path = project.vault_path.as_deref().map(Path::new);
-    list_documents(&*state.vectors, &project_id, vault_path, Some(&state.projects)).await
+    // Best-effort: staleness detection needs the current embed model,
+    // but listing docs must work even with no API key configured.
+    let current_model = embedder_for(&state)
+        .await
+        .ok()
+        .map(|e| e.model_id().to_string());
+    list_documents(
+        &*state.vectors,
+        &project_id,
+        vault_path,
+        Some(&state.projects),
+        current_model.as_deref(),
+    )
+    .await
+}
+
+/// Re-ingest every doc whose vectors were produced by a different
+/// embedding model than the one currently configured. Preserves each
+/// doc's kind and sensitivity; only the vectors change. Skips docs whose
+/// source file no longer exists. Returns the count re-ingested.
+#[tauri::command]
+pub async fn canon_reingest_stale(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<u64> {
+    let embedder = embedder_for(&state).await?;
+    let project = state.projects.open(&project_id)?;
+    let vault_path = project.vault_path.as_deref().map(Path::new);
+    let docs = list_documents(
+        &*state.vectors,
+        &project_id,
+        vault_path,
+        Some(&state.projects),
+        Some(embedder.model_id()),
+    )
+    .await?;
+
+    let svc = IngestService::new(&*embedder, &*state.vectors);
+    let mut count = 0u64;
+    for d in docs {
+        if !d.embedding_stale || !d.exists_on_disk || d.source_path.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(&d.source_path);
+        match svc
+            .ingest_file(&project_id, &path, Some(d.kind), d.sensitivity)
+            .await
+        {
+            Ok(_) => count += 1,
+            Err(e) => {
+                tracing::warn!(path = %d.source_path, error = %e, "stale re-ingest failed");
+            }
+        }
+    }
+    Ok(count)
 }
 
 /// Remove every chunk belonging to a document. Returns the count of

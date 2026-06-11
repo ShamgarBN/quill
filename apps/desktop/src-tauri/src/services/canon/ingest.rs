@@ -82,6 +82,7 @@ impl<'a> IngestService<'a> {
 
         // Replace any prior chunks for this doc, then insert fresh ones.
         self.vectors.delete_by_doc(&doc_id).await?;
+        let embedding_model = self.embedder.model_id().to_string();
         let mut canon_chunks = Vec::with_capacity(chunks.len());
         for (chunk, embedding) in chunks.into_iter().zip(embeddings) {
             let id = format!("{doc_id}:{}", chunk.index);
@@ -98,6 +99,7 @@ impl<'a> IngestService<'a> {
                     sensitivity,
                     source_path: source_path.clone(),
                     kind: resolved_kind,
+                    embedding_model: embedding_model.clone(),
                 },
                 embedding,
             ));

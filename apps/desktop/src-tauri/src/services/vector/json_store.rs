@@ -245,6 +245,7 @@ mod tests {
             sensitivity: ChunkSensitivity::Public,
             source_path: String::new(),
             kind: crate::models::CanonKind::Lore,
+            embedding_model: String::new(),
         }
     }
 

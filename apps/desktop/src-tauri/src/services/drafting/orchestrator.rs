@@ -747,6 +747,7 @@ mod tests {
             sensitivity: ChunkSensitivity::Public,
             source_path: String::new(),
             kind: CanonKind::Lore,
+            embedding_model: String::new(),
         };
         // Mock embedder is deterministic — embedding the chunk text gives a
         // vector that the same query will retrieve.

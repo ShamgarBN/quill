@@ -87,6 +87,12 @@ export interface DocSummary {
   extraction_enabled: boolean;
   /** ISO timestamp of the last completed extraction pass, if any. */
   last_extracted_at: string | null;
+  /** Canon kind carried by this doc's chunks; preserved on re-ingest. */
+  kind: CanonKind;
+  /** True when this doc's vectors came from a different embedding model
+   *  than the one currently configured — similarity search against them
+   *  is silently degraded until re-ingested. */
+  embedding_stale: boolean;
 }
 
 export interface DocMeta {
