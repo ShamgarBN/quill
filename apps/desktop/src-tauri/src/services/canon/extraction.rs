@@ -776,6 +776,7 @@ mod tests {
             sensitivity,
             source_path: "/tmp/x.md".to_string(),
             kind: crate::models::CanonKind::Lore,
+            embedding_model: String::new(),
         }
     }
 

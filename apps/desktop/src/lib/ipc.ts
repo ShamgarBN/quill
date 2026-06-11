@@ -187,6 +187,11 @@ export const canonSetDocExtraction = (
 export const canonExtractDoc = (projectId: string, docId: string): Promise<void> =>
   invoke<void>("canon_extract_doc", { projectId, docId });
 
+/** Re-ingest every doc whose vectors came from a different embedding
+ *  model (kind + sensitivity preserved). Returns the count re-ingested. */
+export const canonReingestStale = (projectId: string): Promise<number> =>
+  invoke<number>("canon_reingest_stale", { projectId });
+
 // ---------- LLM ----------
 
 export const llmProviderStatus = (provider: ProviderId): Promise<ProviderStatus> =>

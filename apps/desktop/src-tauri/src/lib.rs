@@ -65,6 +65,7 @@ pub fn run() {
             commands::canon_retag_documents,
             commands::canon_set_doc_extraction,
             commands::canon_extract_doc,
+            commands::canon_reingest_stale,
             commands::llm_provider_status,
             commands::llm_ping,
             commands::audit_tail,

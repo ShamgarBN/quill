@@ -302,6 +302,7 @@ mod tests {
             sensitivity: s,
             source_path: path.into(),
             kind: crate::models::CanonKind::Lore,
+            embedding_model: String::new(),
         };
         store
             .insert_many(&[

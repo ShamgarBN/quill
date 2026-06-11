@@ -13,7 +13,7 @@
 //! Side-effect-free — purely an aggregation over `chunks_for_project`.
 
 use crate::error::Result;
-use crate::models::ChunkSensitivity;
+use crate::models::{CanonKind, ChunkSensitivity};
 use crate::services::canon::docs::DocMetaStore;
 use crate::services::storage::ProjectStore;
 use crate::services::vector::VectorStore;
@@ -45,6 +45,16 @@ pub struct DocSummary {
     pub extraction_enabled: bool,
     /// Last time the extraction pass completed for this doc, if ever.
     pub last_extracted_at: Option<DateTime<Utc>>,
+    /// Canon kind carried by this doc's chunks (first chunk's value;
+    /// uniform per doc since ingest replaces wholesale). Preserved on
+    /// re-ingest so "re-embed stale" doesn't reset user tagging.
+    pub kind: CanonKind,
+    /// True when this doc's vectors were produced by a different
+    /// embedding model than the one currently configured (or by a
+    /// build that pre-dates model tagging). Stale vectors live in an
+    /// incompatible space and silently degrade similarity search —
+    /// fix by re-ingesting.
+    pub embedding_stale: bool,
 }
 
 pub async fn list_documents(
@@ -52,6 +62,7 @@ pub async fn list_documents(
     project_id: &str,
     vault_path: Option<&Path>,
     projects: Option<&ProjectStore>,
+    current_embed_model: Option<&str>,
 ) -> Result<Vec<DocSummary>> {
     let chunks = vectors.chunks_for_project(project_id).await?;
     // Group by doc_id, preserving stable ordering via BTreeMap.
@@ -63,6 +74,8 @@ pub async fn list_documents(
             word_count: 0,
             first_sensitivity: c.sensitivity,
             mixed: false,
+            kind: c.kind,
+            embedding_model: c.embedding_model.clone(),
         });
         acc.chunk_count += 1;
         acc.word_count += c.word_count;
@@ -94,6 +107,11 @@ pub async fn list_documents(
                 _ => false,
             };
             let (extraction_enabled, last_extracted_at) = meta_for(&doc_id);
+            // Stale = we know the current model and this doc's vectors
+            // came from something else (or pre-date tagging entirely).
+            let embedding_stale = current_embed_model
+                .map(|m| g.embedding_model != m)
+                .unwrap_or(false);
             DocSummary {
                 doc_id,
                 source_path: g.source_path,
@@ -105,6 +123,8 @@ pub async fn list_documents(
                 in_vault,
                 extraction_enabled,
                 last_extracted_at,
+                kind: g.kind,
+                embedding_stale,
             }
         })
         .collect();
@@ -120,7 +140,7 @@ pub async fn list_documents(
 /// Files without a recorded source_path (v0.2 chunks pre-dating that
 /// field) are left alone — we can't tell whether they're missing.
 pub async fn prune_missing(vectors: &dyn VectorStore, project_id: &str) -> Result<u64> {
-    let docs = list_documents(vectors, project_id, None, None).await?;
+    let docs = list_documents(vectors, project_id, None, None, None).await?;
     let mut pruned = 0u64;
     for doc in docs {
         if doc.source_path.is_empty() {
@@ -161,6 +181,8 @@ struct GroupAcc {
     word_count: u32,
     first_sensitivity: ChunkSensitivity,
     mixed: bool,
+    kind: CanonKind,
+    embedding_model: String,
 }
 
 #[cfg(test)]
@@ -190,7 +212,34 @@ mod tests {
             sensitivity,
             source_path: source.into(),
             kind: crate::models::CanonKind::Lore,
+            embedding_model: String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn embedding_staleness_detected_against_current_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let vectors = JsonVectorStore::open(dir.path().join("v.json")).unwrap();
+        let mut fresh = chunk("a:0", "doc_a", "p", "/a.md", ChunkSensitivity::Public, 10);
+        fresh.embedding_model = "gemini-embedding-001".into();
+        // doc_b pre-dates model tagging (empty model string).
+        let legacy = chunk("b:0", "doc_b", "p", "/b.md", ChunkSensitivity::Public, 10);
+        vectors
+            .insert_many(&[(fresh, vec![1.0]), (legacy, vec![1.0])])
+            .await
+            .unwrap();
+
+        let docs = list_documents(&vectors, "p", None, None, Some("gemini-embedding-001"))
+            .await
+            .unwrap();
+        let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
+        let b = docs.iter().find(|d| d.doc_id == "doc_b").unwrap();
+        assert!(!a.embedding_stale, "matching model is fresh");
+        assert!(b.embedding_stale, "untagged legacy chunks are stale");
+
+        // Without a current model (no API key), staleness is unknown → false.
+        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
+        assert!(docs.iter().all(|d| !d.embedding_stale));
     }
 
     #[tokio::test]
@@ -236,7 +285,7 @@ mod tests {
             .await
             .unwrap();
         let vault = PathBuf::from("/vault");
-        let docs = list_documents(&vectors, "p", Some(&vault), None).await.unwrap();
+        let docs = list_documents(&vectors, "p", Some(&vault), None, None).await.unwrap();
         assert_eq!(docs.len(), 2);
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         assert_eq!(a.chunk_count, 2);
@@ -265,7 +314,7 @@ mod tests {
             ])
             .await
             .unwrap();
-        let docs = list_documents(&vectors, "p", None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
         assert!(docs[0].mixed_sensitivity);
     }
 
@@ -304,7 +353,7 @@ mod tests {
             .unwrap();
         let pruned = prune_missing(&vectors, "p").await.unwrap();
         assert_eq!(pruned, 1);
-        let remaining = list_documents(&vectors, "p", None, None).await.unwrap();
+        let remaining = list_documents(&vectors, "p", None, None, None).await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].doc_id, "doc_a");
     }
@@ -339,7 +388,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(changed, 2);
-        let docs = list_documents(&vectors, "p", None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         let b = docs.iter().find(|d| d.doc_id == "doc_b").unwrap();
         assert_eq!(a.sensitivity, ChunkSensitivity::DoNotSend);

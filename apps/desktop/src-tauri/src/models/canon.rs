@@ -80,6 +80,12 @@ pub struct CanonChunk {
     /// without joining back to a separate document index.
     /// Serde-defaults to `Lore` for v0.2 chunks that pre-date this field.
     pub kind: CanonKind,
+    /// Model id that produced this chunk's embedding (e.g.
+    /// "gemini-embedding-001"). Vectors from different models live in
+    /// incompatible spaces — mixing them silently corrupts similarity
+    /// search. Empty for chunks written before this field existed,
+    /// which the Corpus Inspector treats as stale.
+    pub embedding_model: String,
 }
 
 /// Per-document metadata that lives outside the vector index — currently
