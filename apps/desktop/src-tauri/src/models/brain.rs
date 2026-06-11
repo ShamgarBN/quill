@@ -288,6 +288,89 @@ impl ThreadPatch {
     }
 }
 
+/// The category of a World Bible entry. Characters live in their own
+/// store; everything else canonical about the world — places, groups,
+/// and the rules/myths of the setting — is a `WorldEntry` discriminated
+/// by this kind. Surfaced as tabs in the Bible UI.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorldKind {
+    /// A place: continent, city, region, landmark, building.
+    #[default]
+    Location,
+    /// An organization: kingdom, order, guild, cult, council.
+    Faction,
+    /// A concept: magic system, artifact, prophecy, law of the world.
+    Lore,
+}
+
+/// A non-character canonical entity — a place, faction, or lore concept.
+/// Stored in `<project>/bible/world.json` alongside the Character Bible.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldEntry {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub kind: WorldKind,
+    #[serde(default)]
+    pub description: String,
+    /// Alternate names / spellings, for future cross-linking parity with
+    /// Character.aliases.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub ai_suggested: bool,
+    #[serde(default)]
+    pub source_doc_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl WorldEntry {
+    pub fn fresh(project_id: &str, name: &str, kind: WorldKind) -> Self {
+        let now = Utc::now();
+        Self {
+            id: format!("wld_{}", Uuid::new_v4().simple()),
+            project_id: project_id.to_string(),
+            name: name.to_string(),
+            kind,
+            description: String::new(),
+            aliases: Vec::new(),
+            ai_suggested: false,
+            source_doc_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct WorldEntryPatch {
+    pub name: Option<String>,
+    pub kind: Option<WorldKind>,
+    pub description: Option<String>,
+    pub aliases: Option<Vec<String>>,
+}
+
+impl WorldEntryPatch {
+    pub fn apply(self, w: &mut WorldEntry) {
+        if let Some(v) = self.name {
+            w.name = v;
+        }
+        if let Some(v) = self.kind {
+            w.kind = v;
+        }
+        if let Some(v) = self.description {
+            w.description = v;
+        }
+        if let Some(v) = self.aliases {
+            w.aliases = v;
+        }
+    }
+}
+
 /// A single match returned by character cross-link queries. Generic over
 /// the source kind so the UI can render all matches in one list.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -498,13 +498,13 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
         setStatus("Extraction skipped — all chunks marked do-not-send.");
       } else {
         const added =
-          report.characters_added + report.ideas_added + report.threads_added;
+          report.characters_added + report.world_added + report.threads_added;
         const returned =
-          report.characters_returned + report.ideas_returned + report.threads_returned;
+          report.characters_returned + report.world_returned + report.threads_returned;
         const chunksNote = `Read ${report.chunks_sent}/${report.chunks_total} chunks${report.truncated ? " (truncated)" : ""}.`;
         if (added > 0) {
           setStatus(
-            `Added ${report.characters_added} character${report.characters_added === 1 ? "" : "s"}, ${report.ideas_added} idea${report.ideas_added === 1 ? "" : "s"}, ${report.threads_added} thread${report.threads_added === 1 ? "" : "s"}. ${chunksNote}`,
+            `Added ${report.characters_added} character${report.characters_added === 1 ? "" : "s"}, ${report.world_added} world entr${report.world_added === 1 ? "y" : "ies"}, ${report.threads_added} thread${report.threads_added === 1 ? "" : "s"}. ${chunksNote}`,
           );
         } else if (returned > 0) {
           setStatus(

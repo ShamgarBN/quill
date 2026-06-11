@@ -82,14 +82,14 @@ export interface DocMeta {
 export interface ExtractionReport {
   doc_id: string;
   characters_added: number;
-  ideas_added: number;
+  world_added: number;
   threads_added: number;
   skipped_do_not_send: boolean;
   truncated: boolean;
   chunks_total: number;
   chunks_sent: number;
   characters_returned: number;
-  ideas_returned: number;
+  world_returned: number;
   threads_returned: number;
 }
 
@@ -500,6 +500,34 @@ export const THREAD_STATUS_LABEL: Record<ThreadStatus, string> = {
   advancing: "Advancing",
   resolved: "Resolved",
   abandoned: "Abandoned",
+};
+
+export type WorldKind = "location" | "faction" | "lore";
+
+export interface WorldEntry {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: WorldKind;
+  description: string;
+  aliases: string[];
+  ai_suggested: boolean;
+  source_doc_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorldEntryPatch {
+  name?: string;
+  kind?: WorldKind;
+  description?: string;
+  aliases?: string[];
+}
+
+export const WORLD_KIND_LABEL: Record<WorldKind, string> = {
+  location: "Place",
+  faction: "Faction",
+  lore: "Lore",
 };
 
 export type CrossLink =

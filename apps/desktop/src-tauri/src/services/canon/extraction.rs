@@ -26,9 +26,9 @@
 //! also lets the UI offer a "remove all from this doc" action later.
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::{Character, CharacterRole, Idea, Thread};
+use crate::models::brain::{Character, CharacterRole, Thread, WorldEntry, WorldKind};
 use crate::models::canon::{CanonChunk, ChunkSensitivity};
-use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore};
+use crate::services::brain::{CharacterStore, ThreadStore, WorldStore};
 use crate::services::canon::docs::DocMetaStore;
 use crate::services::llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole};
 use crate::services::storage::ProjectStore;
@@ -45,7 +45,8 @@ const MAX_PROMPT_CHARS: usize = 24_000;
 pub struct ExtractionReport {
     pub doc_id: String,
     pub characters_added: u32,
-    pub ideas_added: u32,
+    /// Places + factions + lore concepts added to the World Bible.
+    pub world_added: u32,
     pub threads_added: u32,
     /// True when chunks existed but were all filtered out (do-not-send),
     /// so the LLM was never called. The UI can show "skipped" instead
@@ -66,7 +67,7 @@ pub struct ExtractionReport {
     /// between `*_returned` and `*_added` = how many the dedup
     /// dropped because they already existed.
     pub characters_returned: u32,
-    pub ideas_returned: u32,
+    pub world_returned: u32,
     pub threads_returned: u32,
 }
 
@@ -140,12 +141,12 @@ pub async fn extract_and_merge(
     );
     let payload = parse_json_payload(&resp.content)?;
     report.characters_returned = payload.characters.len() as u32;
-    report.ideas_returned =
+    report.world_returned =
         (payload.locations_factions.len() + payload.lore_concepts.len()) as u32;
     report.threads_returned = payload.threads.len() as u32;
     tracing::info!(
         characters = report.characters_returned,
-        ideas = report.ideas_returned,
+        world = report.world_returned,
         threads = report.threads_returned,
         "canon extraction: parsed candidates"
     );
@@ -516,71 +517,55 @@ fn merge_into_stores(
         }
     }
 
-    // ---- Locations / factions + lore concepts → Idea Park ----
-    let total_ideas_to_consider = payload.locations_factions.len() + payload.lore_concepts.len();
-    if total_ideas_to_consider > 0 {
-        let store = IdeaStore::new(projects);
+    // ---- Locations / factions + lore concepts → World Bible ----
+    let total_world_to_consider = payload.locations_factions.len() + payload.lore_concepts.len();
+    if total_world_to_consider > 0 {
+        let store = WorldStore::new(projects);
         let existing = store.list(project_id)?;
-        let mut existing_texts: std::collections::HashSet<String> = existing
+        // Dedup by (kind, lowercased name) so a Location and a Faction can
+        // legitimately share a name without colliding.
+        let mut existing_keys: std::collections::HashSet<(WorldKind, String)> = existing
             .iter()
-            .map(|i| normalize_idea_text(&i.text))
+            .map(|w| (w.kind, w.name.to_lowercase()))
             .collect();
         let mut all = existing;
 
+        let mut push_world = |name: &str, descr: &str, kind: WorldKind, report_n: &mut u32| {
+            let name = name.trim();
+            if name.is_empty() {
+                return;
+            }
+            let key = (kind, name.to_lowercase());
+            if existing_keys.contains(&key) {
+                return;
+            }
+            existing_keys.insert(key);
+            let mut w = WorldEntry::fresh(project_id, name, kind);
+            w.description = descr.trim().to_string();
+            w.ai_suggested = true;
+            w.source_doc_id = Some(doc_id.to_string());
+            all.push(w);
+            *report_n += 1;
+        };
+
         for cand in &payload.locations_factions {
-            let name = cand.name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let descr = cand.description.trim();
-            let text = if descr.is_empty() {
-                name.to_string()
+            let kind = if cand.kind.trim().eq_ignore_ascii_case("faction") {
+                WorldKind::Faction
             } else {
-                format!("**{name}** — {descr}")
+                WorldKind::Location
             };
-            let key = normalize_idea_text(&text);
-            if existing_texts.contains(&key) {
-                continue;
-            }
-            existing_texts.insert(key);
-            let mut i = Idea::fresh(project_id, &text);
-            let kind = cand.kind.trim().to_lowercase();
-            i.tags = if kind == "faction" {
-                vec!["faction".to_string()]
-            } else {
-                vec!["world".to_string()]
-            };
-            i.ai_suggested = true;
-            i.source_doc_id = Some(doc_id.to_string());
-            all.push(i);
-            report.ideas_added += 1;
+            push_world(&cand.name, &cand.description, kind, &mut report.world_added);
         }
-
         for cand in &payload.lore_concepts {
-            let name = cand.name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let descr = cand.description.trim();
-            let text = if descr.is_empty() {
-                name.to_string()
-            } else {
-                format!("**{name}** — {descr}")
-            };
-            let key = normalize_idea_text(&text);
-            if existing_texts.contains(&key) {
-                continue;
-            }
-            existing_texts.insert(key);
-            let mut i = Idea::fresh(project_id, &text);
-            i.tags = vec!["lore".to_string()];
-            i.ai_suggested = true;
-            i.source_doc_id = Some(doc_id.to_string());
-            all.push(i);
-            report.ideas_added += 1;
+            push_world(
+                &cand.name,
+                &cand.description,
+                WorldKind::Lore,
+                &mut report.world_added,
+            );
         }
 
-        if report.ideas_added > 0 {
+        if report.world_added > 0 {
             store.save(project_id, &all)?;
         }
     }
@@ -631,10 +616,6 @@ fn parse_role(s: &str) -> CharacterRole {
         "minor" => CharacterRole::Minor,
         _ => CharacterRole::Supporting,
     }
-}
-
-fn normalize_idea_text(s: &str) -> String {
-    s.trim().to_lowercase()
 }
 
 #[cfg(test)]
@@ -725,7 +706,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(report.characters_added, 1);
-        assert_eq!(report.ideas_added, 2);
+        assert_eq!(report.world_added, 2);
         assert_eq!(report.threads_added, 1);
 
         let chars = CharacterStore::new(&projects).list(&p.id).unwrap();
@@ -736,15 +717,15 @@ mod tests {
         assert_eq!(chars[0].aliases, vec!["Kael".to_string()]);
         assert_eq!(chars[0].role, CharacterRole::Protagonist);
 
-        let ideas = IdeaStore::new(&projects).list(&p.id).unwrap();
-        assert_eq!(ideas.len(), 2);
-        assert!(ideas.iter().all(|i| i.ai_suggested));
-        assert!(ideas
+        let world = WorldStore::new(&projects).list(&p.id).unwrap();
+        assert_eq!(world.len(), 2);
+        assert!(world.iter().all(|w| w.ai_suggested));
+        assert!(world
             .iter()
-            .any(|i| i.tags.contains(&"world".to_string()) && i.text.contains("Hollow Wastes")));
-        assert!(ideas
+            .any(|w| w.kind == WorldKind::Location && w.name.contains("Hollow Wastes")));
+        assert!(world
             .iter()
-            .any(|i| i.tags.contains(&"lore".to_string()) && i.text.contains("Tarn Pact")));
+            .any(|w| w.kind == WorldKind::Lore && w.name.contains("Tarn Pact")));
 
         let threads = ThreadStore::new(&projects).list(&p.id).unwrap();
         assert_eq!(threads.len(), 1);
@@ -845,7 +826,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(report.characters_added, 1, "null fields must not abort parse");
-        assert_eq!(report.ideas_added, 1);
+        assert_eq!(report.world_added, 1);
         assert_eq!(report.threads_added, 1);
 
         let chars = CharacterStore::new(&projects).list(&p.id).unwrap();

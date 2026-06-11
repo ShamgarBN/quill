@@ -11,7 +11,10 @@ pub mod settings;
 pub mod structure;
 
 #[allow(unused_imports)]
-pub use brain::{Character, CharacterPatch, CharacterRole, CrossLink, Idea, IdeaPatch};
+pub use brain::{
+    Character, CharacterPatch, CharacterRole, CrossLink, Idea, IdeaPatch, WorldEntry,
+    WorldEntryPatch, WorldKind,
+};
 #[allow(unused_imports)]
 pub use canon::{
     CanonChunk, CanonDocument, CanonKind, ChunkRef, ChunkSensitivity, DocMeta, VaultRule,

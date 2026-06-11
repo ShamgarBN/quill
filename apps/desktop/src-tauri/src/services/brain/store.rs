@@ -6,7 +6,8 @@
 
 use crate::error::{QuillError, Result};
 use crate::models::brain::{
-    Character, CharacterPatch, Idea, IdeaPatch, Thread, ThreadPatch, ThreadStatus,
+    Character, CharacterPatch, Idea, IdeaPatch, Thread, ThreadPatch, ThreadStatus, WorldEntry,
+    WorldEntryPatch, WorldKind,
 };
 use crate::services::storage::{self, ProjectStore};
 use chrono::Utc;
@@ -26,6 +27,11 @@ struct IdeaFile {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct ThreadFile {
     pub threads: Vec<Thread>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct WorldFile {
+    pub entries: Vec<WorldEntry>,
 }
 
 pub struct CharacterStore<'a> {
@@ -300,6 +306,82 @@ impl<'a> ThreadStore<'a> {
         threads.retain(|t| matches!(t.status, ThreadStatus::Open | ThreadStatus::Advancing));
         threads.sort_by_key(|t| std::cmp::Reverse(t.updated_at));
         Ok(threads)
+    }
+}
+
+/// World Bible store — places, factions, and lore concepts.
+/// File: `<project>/bible/world.json`.
+pub struct WorldStore<'a> {
+    projects: &'a ProjectStore,
+}
+
+impl<'a> WorldStore<'a> {
+    pub fn new(projects: &'a ProjectStore) -> Self {
+        Self { projects }
+    }
+
+    fn path(&self, project_id: &str) -> Result<PathBuf> {
+        let dir = self.projects.root_dir(project_id)?.join("bible");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir.join("world.json"))
+    }
+
+    pub fn list(&self, project_id: &str) -> Result<Vec<WorldEntry>> {
+        let p = self.path(project_id)?;
+        let f: WorldFile = storage::atomic_read_json_or_default(&p)?;
+        Ok(f.entries)
+    }
+
+    pub fn save(&self, project_id: &str, entries: &[WorldEntry]) -> Result<()> {
+        let p = self.path(project_id)?;
+        storage::atomic_write_json(
+            &p,
+            &WorldFile {
+                entries: entries.to_vec(),
+            },
+        )
+    }
+
+    pub fn create(&self, project_id: &str, name: &str, kind: WorldKind) -> Result<WorldEntry> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(QuillError::InvalidArgument(
+                "world entry name cannot be empty".into(),
+            ));
+        }
+        let mut entries = self.list(project_id)?;
+        let w = WorldEntry::fresh(project_id, trimmed, kind);
+        entries.push(w.clone());
+        self.save(project_id, &entries)?;
+        Ok(w)
+    }
+
+    pub fn delete(&self, project_id: &str, id: &str) -> Result<()> {
+        let mut entries = self.list(project_id)?;
+        let before = entries.len();
+        entries.retain(|w| w.id != id);
+        if entries.len() == before {
+            return Err(QuillError::NotFound(format!("world entry {id}")));
+        }
+        self.save(project_id, &entries)
+    }
+
+    pub fn update(
+        &self,
+        project_id: &str,
+        id: &str,
+        patch: WorldEntryPatch,
+    ) -> Result<WorldEntry> {
+        let mut entries = self.list(project_id)?;
+        let w = entries
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| QuillError::NotFound(format!("world entry {id}")))?;
+        patch.apply(w);
+        w.updated_at = Utc::now();
+        let updated = w.clone();
+        self.save(project_id, &entries)?;
+        Ok(updated)
     }
 }
 
