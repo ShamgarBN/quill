@@ -1,24 +1,30 @@
 /**
- * Character Bible — Phase 7.
+ * World Bible — the home for every canonical entity, in tabs:
+ *   - Characters: three-pane (rail · editor · cross-link panel). The
+ *     `secrets` field has its own `do_not_send` flag (default true) so
+ *     plot-twist material is kept out of LLM prompts.
+ *   - Places / Factions / Lore: two-pane (rail · editor) over WorldEntry
+ *     records, discriminated by kind.
  *
- * Three-pane layout:
- *   - left rail: list of characters, with new/delete
- *   - center: editor for the selected character (name, role, motivation,
- *     voice notes, secrets, arc one-liner)
- *   - right rail: cross-link panel showing every scene + canon chunk
- *     that mentions this character (by name or alias).
- *
- * The `secrets` field has its own `do_not_send` flag (defaults true) so
- * plot-twist material is excluded from any LLM prompt the orchestrator
- * assembles.
+ * All four are auto-populated by the canon extraction pass (entries show
+ * an "AI" badge and refetch live on `canon-extraction-complete`) and are
+ * fully hand-editable.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Eye, EyeOff, Loader2, Plus, Trash2, Users2 } from "lucide-react";
+import { Eye, EyeOff, Globe2, Loader2, Plus, Trash2, Users2 } from "lucide-react";
 import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
-import type { Character, CharacterPatch, CharacterRole, CrossLink } from "@/types";
-import { CHARACTER_ROLE_LABELS } from "@/types";
+import type {
+  Character,
+  CharacterPatch,
+  CharacterRole,
+  CrossLink,
+  WorldEntry,
+  WorldEntryPatch,
+  WorldKind,
+} from "@/types";
+import { CHARACTER_ROLE_LABELS, WORLD_KIND_LABEL } from "@/types";
 import { ViewHeader } from "@/routes/Manuscript";
 import { PromptDialog } from "@/components/shell/PromptDialog";
 import { AISuggestedBadge } from "@/components/shell/AISuggestedBadge";
@@ -38,8 +44,162 @@ const ROLE_OPTIONS: CharacterRole[] = [
 
 const PATCH_DEBOUNCE_MS = 600;
 
+type BibleTab = "characters" | "location" | "faction" | "lore";
+
+const WORLD_TABS: { id: BibleTab; label: string; kind: WorldKind }[] = [
+  { id: "location", label: "Places", kind: "location" },
+  { id: "faction", label: "Factions", kind: "faction" },
+  { id: "lore", label: "Lore", kind: "lore" },
+];
+
+/**
+ * World Bible shell: a tabbed home for every canonical entity.
+ *   - Characters → the original three-pane Character Bible.
+ *   - Places / Factions / Lore → World entries (locations, organizations,
+ *     and the rules/myths of the setting), each a two-pane rail+editor.
+ *
+ * All four are populated by the canon extraction pass; entries carry an
+ * "AI" badge and refetch live when an extraction completes.
+ */
 export function BibleView(): JSX.Element {
   const project = useApp((s) => s.currentProject);
+  const [tab, setTab] = useState<BibleTab>("characters");
+  const [counts, setCounts] = useState({
+    characters: 0,
+    location: 0,
+    faction: 0,
+    lore: 0,
+  });
+
+  const refreshCounts = useCallback(async () => {
+    if (!project) return;
+    try {
+      const [chars, world] = await Promise.all([
+        ipc.brainCharactersList(project.id),
+        ipc.brainWorldList(project.id),
+      ]);
+      setCounts({
+        characters: chars.length,
+        location: world.filter((w) => w.kind === "location").length,
+        faction: world.filter((w) => w.kind === "faction").length,
+        lore: world.filter((w) => w.kind === "lore").length,
+      });
+    } catch {
+      // Non-fatal — tab badges just won't update.
+    }
+  }, [project]);
+
+  useEffect(() => {
+    void refreshCounts();
+  }, [refreshCounts]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("canon-extraction-complete", () => {
+      void refreshCounts();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [refreshCounts]);
+
+  if (!project) {
+    return (
+      <div className="flex h-full flex-col">
+        <ViewHeader title="Bible" subtitle="No project open" />
+        <div className="flex flex-1 items-center justify-center p-8 text-sm text-ink-faint">
+          Open or create a project to use the Bible.
+        </div>
+      </div>
+    );
+  }
+
+  const total = counts.characters + counts.location + counts.faction + counts.lore;
+
+  return (
+    <div className="flex h-full flex-col">
+      <ViewHeader
+        title="Bible"
+        subtitle={`${total} ${total === 1 ? "entry" : "entries"} across people, places, factions & lore`}
+      />
+      <div className="flex shrink-0 items-center gap-1 border-b border-line-subtle bg-surface-subtle px-3 py-1.5">
+        <TabButton
+          label="Characters"
+          count={counts.characters}
+          active={tab === "characters"}
+          onClick={() => setTab("characters")}
+        />
+        {WORLD_TABS.map((t) => (
+          <TabButton
+            key={t.id}
+            label={t.label}
+            count={counts[t.id as "location" | "faction" | "lore"]}
+            active={tab === t.id}
+            onClick={() => setTab(t.id)}
+          />
+        ))}
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        {tab === "characters" ? (
+          <CharactersTab project={project} onMutate={refreshCounts} />
+        ) : (
+          <WorldTab
+            project={project}
+            kind={tab as WorldKind}
+            onMutate={refreshCounts}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors",
+        active
+          ? "bg-accent-subtle text-accent"
+          : "text-ink-muted hover:bg-surface-muted hover:text-ink",
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          "rounded-full px-1.5 text-[10px] tabular-nums",
+          active ? "bg-accent/20 text-accent" : "bg-surface-muted text-ink-faint",
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ---------- Characters tab ----------
+
+function CharactersTab({
+  project,
+  onMutate,
+}: {
+  project: { id: string };
+  onMutate: () => void;
+}): JSX.Element {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +208,6 @@ export function BibleView(): JSX.Element {
   const [creating, setCreating] = useState(false);
 
   const refreshList = useCallback(async () => {
-    if (!project) return;
     try {
       const list = await ipc.brainCharactersList(project.id);
       list.sort((a, b) => a.name.localeCompare(b.name));
@@ -57,7 +216,7 @@ export function BibleView(): JSX.Element {
     } catch (e) {
       setError(messageOf(e));
     }
-  }, [project]);
+  }, [project.id]);
 
   useEffect(() => {
     void refreshList();
@@ -83,7 +242,7 @@ export function BibleView(): JSX.Element {
 
   // Refresh cross-links whenever the active character or project changes.
   useEffect(() => {
-    if (!project || !active) {
+    if (!active) {
       setCrossLinks([]);
       return;
     }
@@ -103,19 +262,16 @@ export function BibleView(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [project, active]);
+  }, [project.id, active]);
 
-  const onCreate = (): void => {
-    if (!project) return;
-    setCreating(true);
-  };
+  const onCreate = (): void => setCreating(true);
 
   const submitCreate = async (name: string): Promise<void> => {
-    if (!project) return;
     setCreating(false);
     try {
       const created = await ipc.brainCharacterCreate(project.id, name);
       await refreshList();
+      onMutate();
       setActiveId(created.id);
     } catch (e) {
       setError(messageOf(e));
@@ -123,7 +279,6 @@ export function BibleView(): JSX.Element {
   };
 
   const onDelete = async (id: string): Promise<void> => {
-    if (!project) return;
     const target = characters.find((c) => c.id === id);
     if (!target) return;
     if (!window.confirm(`Delete character "${target.name}"?`)) return;
@@ -131,13 +286,14 @@ export function BibleView(): JSX.Element {
       await ipc.brainCharacterDelete(project.id, id);
       if (activeId === id) setActiveId(null);
       await refreshList();
+      onMutate();
     } catch (e) {
       setError(messageOf(e));
     }
   };
 
   const onPatch = async (patch: CharacterPatch): Promise<void> => {
-    if (!project || !active) return;
+    if (!active) return;
     try {
       const updated = await ipc.brainCharacterUpdate(project.id, active.id, patch);
       setCharacters((curr) => curr.map((c) => (c.id === updated.id ? updated : c)));
@@ -146,23 +302,8 @@ export function BibleView(): JSX.Element {
     }
   };
 
-  if (!project) {
-    return (
-      <div className="flex h-full flex-col">
-        <ViewHeader title="Character Bible" subtitle="No project open" />
-        <div className="flex flex-1 items-center justify-center p-8 text-sm text-ink-faint">
-          Open or create a project to use the Character Bible.
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-full flex-col">
-      <ViewHeader
-        title="Character Bible"
-        subtitle={`${characters.length} character${characters.length === 1 ? "" : "s"}`}
-      />
+    <div className="flex flex-1 flex-col overflow-hidden">
       {error && (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
           {error}
@@ -201,6 +342,334 @@ export function BibleView(): JSX.Element {
           onCancel={() => setCreating(false)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- World tab (places / factions / lore) ----------
+
+function WorldTab({
+  project,
+  kind,
+  onMutate,
+}: {
+  project: { id: string };
+  kind: WorldKind;
+  onMutate: () => void;
+}): JSX.Element {
+  const [entries, setEntries] = useState<WorldEntry[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const refreshList = useCallback(async () => {
+    try {
+      const list = await ipc.brainWorldList(project.id);
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setEntries(list);
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("canon-extraction-complete", () => {
+      void refreshList();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [refreshList]);
+
+  const visible = useMemo(
+    () => entries.filter((e) => e.kind === kind),
+    [entries, kind],
+  );
+
+  // Reset selection when switching tabs (kind changes).
+  useEffect(() => {
+    setActiveId((curr) => {
+      if (curr && visible.some((e) => e.id === curr)) return curr;
+      return visible[0]?.id ?? null;
+    });
+  }, [kind, visible]);
+
+  const active = useMemo(
+    () => visible.find((e) => e.id === activeId) ?? null,
+    [visible, activeId],
+  );
+
+  const onCreate = (): void => setCreating(true);
+
+  const submitCreate = async (name: string): Promise<void> => {
+    setCreating(false);
+    try {
+      const created = await ipc.brainWorldCreate(project.id, name, kind);
+      await refreshList();
+      onMutate();
+      setActiveId(created.id);
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+
+  const onDelete = async (id: string): Promise<void> => {
+    const target = entries.find((e) => e.id === id);
+    if (!target) return;
+    if (!window.confirm(`Delete "${target.name}"?`)) return;
+    try {
+      await ipc.brainWorldDelete(project.id, id);
+      if (activeId === id) setActiveId(null);
+      await refreshList();
+      onMutate();
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+
+  const onPatch = async (id: string, patch: WorldEntryPatch): Promise<void> => {
+    try {
+      const updated = await ipc.brainWorldUpdate(project.id, id, patch);
+      setEntries((curr) => curr.map((e) => (e.id === updated.id ? updated : e)));
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  };
+
+  const label = WORLD_KIND_LABEL[kind];
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {error && (
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+          {error}
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
+        <WorldRail
+          entries={visible}
+          label={label}
+          activeId={activeId}
+          onPick={setActiveId}
+          onCreate={onCreate}
+          onDelete={onDelete}
+        />
+        <div className="flex flex-1 overflow-hidden">
+          {!active ? (
+            <WorldEmptyState kind={kind} onCreate={onCreate} />
+          ) : (
+            <WorldEditor
+              key={active.id}
+              entry={active}
+              onPatch={(patch) => onPatch(active.id, patch)}
+            />
+          )}
+        </div>
+      </div>
+      {creating && (
+        <PromptDialog
+          title={`New ${label.toLowerCase()}`}
+          label="Name"
+          placeholder={`${label} name`}
+          submitLabel={`Create ${label.toLowerCase()}`}
+          onSubmit={(v) => void submitCreate(v)}
+          onCancel={() => setCreating(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function WorldRail({
+  entries,
+  label,
+  activeId,
+  onPick,
+  onCreate,
+  onDelete,
+}: {
+  entries: WorldEntry[];
+  label: string;
+  activeId: string | null;
+  onPick: (id: string) => void;
+  onCreate: () => void;
+  onDelete: (id: string) => void;
+}): JSX.Element {
+  return (
+    <aside className="flex w-60 shrink-0 flex-col border-r border-line-subtle bg-surface-subtle">
+      <div className="flex items-center justify-between border-b border-line-subtle px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
+        <span>{label}s</span>
+        <button
+          type="button"
+          onClick={onCreate}
+          className="qbtn-ghost inline-flex h-6 items-center gap-1 px-1.5 text-xs"
+          title={`New ${label.toLowerCase()}`}
+        >
+          <Plus className="h-3.5 w-3.5" /> New
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto py-1">
+        {entries.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-ink-faint">
+            No {label.toLowerCase()}s yet.
+          </div>
+        ) : (
+          entries.map((e) => (
+            <div
+              key={e.id}
+              className={cn(
+                "group flex items-center gap-2 px-3 py-1.5 text-sm",
+                e.id === activeId
+                  ? "bg-amber-50 text-ink dark:bg-amber-950/30"
+                  : "hover:bg-surface-elevated",
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => onPick(e.id)}
+                className="flex min-w-0 flex-1 flex-col items-start text-left"
+              >
+                <span className="flex w-full items-center gap-1.5">
+                  <span className="truncate font-medium">{e.name}</span>
+                  {e.ai_suggested && <AISuggestedBadge sourceDocId={e.source_doc_id} />}
+                </span>
+                {e.description && (
+                  <span className="truncate text-[10px] text-ink-faint">
+                    {e.description}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(e.id)}
+                className="invisible text-ink-faint hover:text-red-600 group-hover:visible"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function WorldEditor({
+  entry,
+  onPatch,
+}: {
+  entry: WorldEntry;
+  onPatch: (patch: WorldEntryPatch) => Promise<void>;
+}): JSX.Element {
+  const [draft, setDraft] = useState<WorldEntry>(entry);
+  useEffect(() => setDraft(entry), [entry]);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuePatch = useCallback(
+    (patch: WorldEntryPatch) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        void onPatch(patch);
+      }, PATCH_DEBOUNCE_MS);
+    },
+    [onPatch],
+  );
+
+  const update = (key: keyof WorldEntry, value: unknown): void => {
+    setDraft((curr) => ({ ...curr, [key]: value }));
+    if (key === "aliases") {
+      const list = (value as string)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      queuePatch({ aliases: list });
+    } else {
+      queuePatch({ [key]: value } as WorldEntryPatch);
+    }
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto px-6 py-5">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+        <Field label="Name">
+          <input
+            type="text"
+            value={draft.name}
+            onChange={(e) => update("name", e.target.value)}
+            className="qinput w-full"
+          />
+        </Field>
+        <Field label="Type">
+          <select
+            value={draft.kind}
+            onChange={(e) => update("kind", e.target.value as WorldKind)}
+            className="qinput w-full"
+          >
+            {(["location", "faction", "lore"] as WorldKind[]).map((k) => (
+              <option key={k} value={k}>
+                {WORLD_KIND_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Aliases (comma-separated)">
+          <input
+            type="text"
+            value={draft.aliases.join(", ")}
+            onChange={(e) => update("aliases", e.target.value)}
+            className="qinput w-full"
+            placeholder="Alternate names or spellings"
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            value={draft.description}
+            onChange={(e) => update("description", e.target.value)}
+            rows={10}
+            className="qinput w-full font-prose"
+            placeholder="What is it? What matters about it? How does it bear on the story?"
+          />
+        </Field>
+        {draft.ai_suggested && (
+          <p className="text-xs text-ink-faint">
+            ✨ Extracted from canon
+            {draft.source_doc_id ? ` (${draft.source_doc_id})` : ""}. Edit freely — your
+            changes stick.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WorldEmptyState({
+  kind,
+  onCreate,
+}: {
+  kind: WorldKind;
+  onCreate: () => void;
+}): JSX.Element {
+  const label = WORLD_KIND_LABEL[kind].toLowerCase();
+  return (
+    <div className="flex flex-1 items-center justify-center p-8">
+      <div className="max-w-md text-center text-ink-muted">
+        <Globe2 className="mx-auto mb-3 h-8 w-8 text-ink-faint" />
+        <p className="text-base">No {label} selected.</p>
+        <p className="mt-2 text-sm text-ink-subtle">
+          Ingest worldbuilding notes in Canon to auto-populate this, or add one by hand.
+        </p>
+        <button type="button" onClick={onCreate} className="qbtn-primary mt-4">
+          <Plus className="mr-1.5 h-4 w-4" /> New {label}
+        </button>
+      </div>
     </div>
   );
 }

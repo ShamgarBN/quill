@@ -50,6 +50,9 @@ import type {
   VoiceFeatures,
   VoiceFingerprint,
   WatchStatus,
+  WorldEntry,
+  WorldEntryPatch,
+  WorldKind,
 } from "@/types";
 
 // ---------- Projects ----------
@@ -405,6 +408,28 @@ export const brainThreadUpdate = (
 
 export const brainThreadDelete = (projectId: string, id: string): Promise<void> =>
   invoke<void>("brain_thread_delete", { projectId, id });
+
+// ---------- World Bible (places / factions / lore) ----------
+
+export const brainWorldList = (projectId: string): Promise<WorldEntry[]> =>
+  invoke<WorldEntry[]>("brain_world_list", { projectId });
+
+export const brainWorldCreate = (
+  projectId: string,
+  name: string,
+  kind: WorldKind,
+): Promise<WorldEntry> =>
+  invoke<WorldEntry>("brain_world_create", { projectId, name, kind });
+
+export const brainWorldUpdate = (
+  projectId: string,
+  id: string,
+  patch: WorldEntryPatch,
+): Promise<WorldEntry> =>
+  invoke<WorldEntry>("brain_world_update", { projectId, id, patch });
+
+export const brainWorldDelete = (projectId: string, id: string): Promise<void> =>
+  invoke<void>("brain_world_delete", { projectId, id });
 
 // `Beat` is re-exported so consumers can import alongside ipc fns.
 export type { Beat };

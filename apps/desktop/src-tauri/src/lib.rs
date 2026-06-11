@@ -107,6 +107,10 @@ pub fn run() {
             commands::brain_thread_create,
             commands::brain_thread_update,
             commands::brain_thread_delete,
+            commands::brain_world_list,
+            commands::brain_world_create,
+            commands::brain_world_update,
+            commands::brain_world_delete,
             commands::system_reveal_path,
         ])
         .run(tauri::generate_context!())
