@@ -139,7 +139,6 @@ fn compute_doc_id(canonical: &Path) -> String {
     format!("doc_{hex}")
 }
 
-#[allow(dead_code)]
 pub fn doc_id_for(path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
     compute_doc_id(&canonical)

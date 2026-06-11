@@ -29,6 +29,12 @@ use tokio::sync::Mutex as AsyncMutex;
 /// deliberate save shows up quickly.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(2);
 
+/// Callback fired after each successful re-ingest, with the project id and
+/// the path of the file that was re-ingested. Used by the command layer to
+/// schedule entity extraction without the watch service knowing anything
+/// about LLM providers or app handles.
+pub type IngestedHook = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync>;
+
 /// Snapshot of a single active watch. Cloned out for IPC return.
 #[derive(Debug, Clone, Serialize)]
 pub struct WatchStatus {
@@ -84,6 +90,20 @@ impl WatchService {
         embedder: Arc<dyn EmbeddingsProvider>,
         vectors: Arc<dyn VectorStore>,
     ) -> Result<WatchStatus> {
+        self.start_with_hook(project_id, policy, embedder, vectors, None)
+            .await
+    }
+
+    /// `start`, plus an optional hook fired after each successful
+    /// re-ingest. See [`IngestedHook`].
+    pub async fn start_with_hook(
+        &self,
+        project_id: &str,
+        policy: VaultPolicy,
+        embedder: Arc<dyn EmbeddingsProvider>,
+        vectors: Arc<dyn VectorStore>,
+        on_ingested: Option<IngestedHook>,
+    ) -> Result<WatchStatus> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<VaultChange>();
         let watcher = spawn_watcher(&policy.vault_path, DEFAULT_DEBOUNCE, tx)?;
 
@@ -135,6 +155,9 @@ impl WatchService {
                     Ok(true) => {
                         w.files_reingested += 1;
                         w.last_error = None;
+                        if let Some(hook) = on_ingested.as_ref() {
+                            hook(&dispatch_project_id, &change.path);
+                        }
                     }
                     Ok(false) => {
                         // Removal or skipped — no count bump, no error.
