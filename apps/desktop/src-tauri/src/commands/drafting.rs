@@ -20,6 +20,7 @@ pub async fn drafting_preview(
         embedder,
         providers: &state.providers,
         audit: state.audit.clone(),
+        age_band: settings.target_age_band,
     };
     svc.preview(chat, &req).await
 }
@@ -41,6 +42,7 @@ pub async fn drafting_invoke(
         embedder,
         providers: &state.providers,
         audit: state.audit.clone(),
+        age_band: settings.target_age_band,
     };
     svc.invoke(chat, &req).await
 }

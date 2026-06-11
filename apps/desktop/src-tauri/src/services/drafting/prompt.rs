@@ -4,6 +4,7 @@
 
 use crate::models::brain::{Character, Idea, Thread, ThreadStatus, WorldEntry, WorldKind};
 use crate::models::canon::ChunkRef;
+use crate::models::settings::AgeBand;
 use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
 use crate::services::llm::{ChatMessage, ChatRole, IncludedCategory};
@@ -13,6 +14,9 @@ use crate::services::llm::{ChatMessage, ChatRole, IncludedCategory};
 /// produced.
 pub struct PromptInputs<'a> {
     pub operation: DraftOperation,
+    /// Target readership band — calibrates vocabulary, content lines,
+    /// and the critique's reader-fit lens.
+    pub age_band: AgeBand,
     pub instruction: &'a str,
 
     /// The active beat the user is writing toward. None if scene isn't
@@ -85,7 +89,7 @@ pub fn assemble_messages(inputs: &PromptInputs<'_>) -> AssembledPrompt {
     let mut included = Vec::with_capacity(8);
     included.push(IncludedCategory::SystemPrompt);
 
-    let system = system_prompt(inputs.operation);
+    let system = system_prompt(inputs.operation, inputs.age_band);
     let mut messages = Vec::with_capacity(2);
     messages.push(ChatMessage {
         role: ChatRole::System,
@@ -102,16 +106,36 @@ pub fn assemble_messages(inputs: &PromptInputs<'_>) -> AssembledPrompt {
     AssembledPrompt { messages, included }
 }
 
-fn system_prompt(op: DraftOperation) -> String {
-    let core = "\
-You are Quill, a writing partner for a young-adult fantasy novel.
+/// Audience calibration injected into every system prompt. "8-18" spans
+/// two distinct markets; the writer picks the band in Settings.
+fn band_guidance(band: AgeBand) -> &'static str {
+    match band {
+        AgeBand::MiddleGrade => "\
+- Audience: middle-grade readers (ages 8-12). Sentences lean short and concrete; \
+vocabulary stays accessible — let context teach any invented term. Wonder and humor \
+carry the tone. Romance is at most a blushing crush. Violence stays mild or off-page \
+and is never lingered on. Themes: friendship, family, courage, belonging, first independence.",
+        AgeBand::YoungAdult => "\
+- Audience: young-adult readers (ages 13-18). Fuller interiority and emotional \
+complexity are welcome. Romance may simmer but stays non-explicit. Violence carries \
+weight and consequence without gratuitous detail. Themes: identity, agency, loyalty, \
+moral ambiguity, the cost of power.",
+    }
+}
+
+fn system_prompt(op: DraftOperation, band: AgeBand) -> String {
+    let audience = band_guidance(band);
+    let core = format!(
+        "\
+You are Quill, a writing partner for a fantasy novel aimed at young readers.
 
 Your discipline:
 - Write tight, image-led prose that reads aloud well.
 - Honor the canon excerpts provided. Never contradict them. Never invent contradictory details.
 - Match the voice of the reference style passages: sentence-length variety, image grounding, dialogue with light tags.
-- For YA: keep romance tender (no explicit content), violence consequential but not gratuitous.
-- Track the active beat — write toward it but never name it explicitly in the prose.";
+{audience}
+- Track the active beat — write toward it but never name it explicitly in the prose."
+    );
 
     match op {
         DraftOperation::Continue => format!(
@@ -133,6 +157,8 @@ Your discipline:
              Output format (Markdown):\n\
              - **Voice** — does the passage match the reference style? Cite specific phrases.\n\
              - **Pacing** — does it escalate? Are there flat patches?\n\
+             - **Reader fit** — are vocabulary, sentence complexity, and content right for \
+             the target audience above? Flag anything drifting older or younger than the band.\n\
              - **Continuity** — anything that contradicts the canon excerpts?\n\
              - **Three concrete edits** — line-level suggestions, each tied to a quoted phrase.\n\
              Be direct. Praise sparingly and only when warranted."
@@ -596,6 +622,7 @@ mod tests {
             "He gripped the bow tighter.".to_string(),
         )];
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "Open with the dragon falling.",
             beat: Some(&beat),
@@ -643,6 +670,7 @@ mod tests {
     fn rewrite_uses_selection_not_prior_text() {
         let scene = fake_scene();
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Rewrite,
             instruction: "Tighten this and amp the tension.",
             beat: None,
@@ -672,6 +700,7 @@ mod tests {
     fn critique_uses_critique_instructions() {
         let scene = fake_scene();
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Critique,
             instruction: "",
             beat: None,
@@ -705,6 +734,7 @@ mod tests {
         let scene = fake_scene();
         let beat = fake_beat();
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "Begin the scene.",
             beat: Some(&beat),
@@ -732,6 +762,7 @@ mod tests {
         chunk.text = "lorem ipsum dolor sit amet. ".repeat(500);
         let scene = fake_scene();
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "Continue.",
             beat: None,
@@ -792,6 +823,7 @@ mod tests {
         character.secrets_do_not_send = true;
 
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,
@@ -823,6 +855,19 @@ mod tests {
     }
 
     #[test]
+    fn system_prompt_calibrates_to_age_band() {
+        let mg = system_prompt(DraftOperation::Continue, AgeBand::MiddleGrade);
+        assert!(mg.contains("ages 8-12"));
+        assert!(mg.contains("blushing crush"));
+        let ya = system_prompt(DraftOperation::Continue, AgeBand::YoungAdult);
+        assert!(ya.contains("ages 13-18"));
+        assert!(ya.contains("moral ambiguity"));
+        // Critique adds the reader-fit lens.
+        let critique = system_prompt(DraftOperation::Critique, AgeBand::MiddleGrade);
+        assert!(critique.contains("**Reader fit**"));
+    }
+
+    #[test]
     fn world_entries_render_as_curated_canon_block() {
         let scene = fake_scene();
         let mut cinterra = WorldEntry::fresh("p1", "Cinterra", WorldKind::Location);
@@ -833,6 +878,7 @@ mod tests {
         let world = vec![cinterra, coven];
 
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,
@@ -869,6 +915,7 @@ mod tests {
         character.secrets = "Hidden bloodline.".into();
         character.secrets_do_not_send = false; // user explicitly opted in
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,
@@ -903,6 +950,7 @@ mod tests {
         let threads = vec![active.clone(), other];
         let linked = vec![active.id.clone()];
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,
@@ -943,6 +991,7 @@ mod tests {
         let idea2 = Idea::fresh("p1", "Lake Tarn reflects no stars after the dragon falls");
         let ideas = vec![idea1, idea2];
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,
@@ -974,6 +1023,7 @@ mod tests {
         let mut chunk = fake_chunk();
         chunk.text = "Lake Tarn — cold mirror at the western edge.".into();
         let inputs = PromptInputs {
+            age_band: AgeBand::YoungAdult,
             operation: DraftOperation::Continue,
             instruction: "",
             beat: None,

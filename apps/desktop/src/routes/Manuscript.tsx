@@ -21,7 +21,7 @@
  *   - track-changes diffing
  * Those land in 5.x once the editor's data flow is solid.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -47,7 +47,9 @@ import type {
   SearchHit,
   TodayProgress,
 } from "@/types";
+import { AGE_BAND_GRADE_RANGE, AGE_BAND_LABEL } from "@/types";
 import { cn } from "@/lib/cn";
+import { fleschKincaidGrade } from "@/lib/readability";
 import { DraftingPanel } from "@/routes/DraftingPanel";
 import { DiffReviewPane } from "@/components/editor/DiffReviewPane";
 import { SceneMetaStrip } from "@/components/editor/SceneMetaStrip";
@@ -1074,6 +1076,7 @@ function Editor({
         <div className="flex items-center gap-4">
           <span>{wordCount.toLocaleString()} words</span>
           <span>{charCount.toLocaleString()} chars</span>
+          <ReadabilityIndicator text={text} />
         </div>
         <DriftIndicator
           hasFingerprint={hasFingerprint}
@@ -1082,6 +1085,31 @@ function Editor({
         />
       </footer>
     </div>
+  );
+}
+
+/** Flesch-Kincaid grade chip, scored against the project's target age
+ *  band. Muted when in range, amber as a gentle nudge when outside it.
+ *  Hidden below the scoring minimum (~30 words). */
+function ReadabilityIndicator({ text }: { text: string }): JSX.Element | null {
+  const band = useApp((s) => s.settings?.target_age_band ?? "young-adult");
+  const score = useMemo(() => fleschKincaidGrade(text), [text]);
+  if (!score) return null;
+  const [lo, hi] = AGE_BAND_GRADE_RANGE[band];
+  const inRange = score.grade >= lo && score.grade <= hi;
+  return (
+    <span
+      title={`Flesch-Kincaid reading grade ≈ ${score.grade}. Target for ${AGE_BAND_LABEL[band]}: grades ${lo}–${hi}. A nudge, not a rule — names and dialogue skew it.`}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5",
+        inRange
+          ? "text-ink-faint"
+          : "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200",
+      )}
+    >
+      Grade ~{score.grade.toFixed(1)}
+      {!inRange && (score.grade > hi ? " ↑" : " ↓")}
+    </span>
   );
 }
 

@@ -22,6 +22,6 @@ pub use canon::{
 pub use commit::CommitInfo;
 pub use project::{Project, ProjectPatch};
 #[allow(unused_imports)]
-pub use settings::{FontPreference, GenerationMode, Settings, ThemePreference};
+pub use settings::{AgeBand, FontPreference, GenerationMode, Settings, ThemePreference};
 #[allow(unused_imports)]
 pub use structure::{Beat, BeatId, BeatSheet, Scene, SceneList, SceneStatus};
