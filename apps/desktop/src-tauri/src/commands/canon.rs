@@ -4,9 +4,9 @@ use crate::error::{QuillError, Result};
 use crate::models::canon::DocMeta;
 use crate::models::{CanonKind, ChunkRef, ChunkSensitivity};
 use crate::services::canon::{
-    extract_and_merge, list_documents, prune_missing, reapply_rules, resolve_sensitivity,
-    retag_documents, DocMetaStore, DocSummary, ExtractionReport, IngestReport, IngestService,
-    VaultPolicy, WatchStatus,
+    doc_id_for, extract_and_merge, list_documents, prune_missing, reapply_rules,
+    resolve_sensitivity, retag_documents, Debouncer, DocMetaStore, DocSummary, ExtractionReport,
+    IngestReport, IngestService, IngestedHook, VaultPolicy, WatchStatus,
 };
 use crate::services::llm::{AuditEntry, AuditLog, IncludedCategory, ProviderId};
 use crate::services::storage::ProjectStore;
@@ -294,9 +294,15 @@ pub async fn canon_count(state: State<'_, AppState>, project_id: String) -> Resu
 /// Resolution: if `vault_path` is supplied, use it (and persist it to the
 /// project so the next start-up call uses the same value). Otherwise fall
 /// back to the project's persisted `vault_path`. Errors if neither is set.
+/// Quiet period between a vault file's last re-ingest and its extraction
+/// pass. Obsidian autosaves every few seconds while the user types; this
+/// coalesces a whole writing session on one note into a single LLM call.
+const WATCH_EXTRACTION_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(90);
+
 #[tauri::command]
 pub async fn canon_watch_start(
     state: State<'_, AppState>,
+    app: AppHandle,
     project_id: String,
     vault_path: Option<String>,
 ) -> Result<WatchStatus> {
@@ -315,9 +321,36 @@ pub async fn canon_watch_start(
         rules: project.vault_rules.clone(),
         default: project.vault_default_sensitivity,
     };
+
+    // After each successful re-ingest, schedule a debounced extraction
+    // pass for that doc. The hook captures only the AppHandle — state is
+    // re-fetched at fire time so provider/key changes made after the
+    // watch started are picked up. Skips (provider missing, per-doc
+    // opt-out) are silent here: nobody clicked anything, so there is no
+    // pending UI state to clear.
+    let debouncer = Arc::new(Debouncer::new(WATCH_EXTRACTION_DEBOUNCE));
+    let hook_app = app.clone();
+    let hook: IngestedHook = Arc::new(move |project_id: &str, file_path: &Path| {
+        let doc_id = doc_id_for(file_path);
+        let app = hook_app.clone();
+        let project_id = project_id.to_string();
+        let key = doc_id.clone();
+        debouncer.schedule(&key, move || {
+            use tauri::Manager;
+            let state = app.state::<AppState>();
+            let _ = schedule_extraction(
+                &app,
+                state.inner(),
+                &project_id,
+                &doc_id,
+                ExtractionTrigger::Auto,
+            );
+        });
+    });
+
     let status = state
         .watches
-        .start(&project_id, policy, embedder, vectors)
+        .start_with_hook(&project_id, policy, embedder, vectors, Some(hook))
         .await?;
 
     // Persist the path + enable the auto-watch flag so the next app start
