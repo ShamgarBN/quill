@@ -601,6 +601,8 @@ export interface DraftPreview {
   thread_count: number;
   /** Of those threads, how many are tagged on the active scene. */
   linked_thread_count: number;
+  /** How many curated World Bible entries were matched into the prompt. */
+  world_entry_count: number;
   provider: string;
   model: string;
 }
