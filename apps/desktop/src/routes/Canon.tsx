@@ -499,16 +499,21 @@ function CorpusInspector({ projectId }: { projectId: string }): JSX.Element {
       } else {
         const added =
           report.characters_added + report.world_added + report.threads_added;
+        const enriched = report.characters_enriched + report.world_enriched;
         const returned =
           report.characters_returned + report.world_returned + report.threads_returned;
         const chunksNote = `Read ${report.chunks_sent}/${report.chunks_total} chunks${report.truncated ? " (truncated)" : ""}.`;
-        if (added > 0) {
+        if (added > 0 || enriched > 0) {
+          const enrichedNote =
+            enriched > 0
+              ? ` Updated ${enriched} existing entr${enriched === 1 ? "y" : "ies"} with new facts.`
+              : "";
           setStatus(
-            `Added ${report.characters_added} character${report.characters_added === 1 ? "" : "s"}, ${report.world_added} world entr${report.world_added === 1 ? "y" : "ies"}, ${report.threads_added} thread${report.threads_added === 1 ? "" : "s"}. ${chunksNote}`,
+            `Added ${report.characters_added} character${report.characters_added === 1 ? "" : "s"}, ${report.world_added} world entr${report.world_added === 1 ? "y" : "ies"}, ${report.threads_added} thread${report.threads_added === 1 ? "" : "s"}.${enrichedNote} ${chunksNote}`,
           );
         } else if (returned > 0) {
           setStatus(
-            `Model returned ${returned} candidate${returned === 1 ? "" : "s"} but all matched existing entries. ${chunksNote}`,
+            `Model returned ${returned} candidate${returned === 1 ? "" : "s"} but all matched existing entries (no new facts). ${chunksNote}`,
           );
         } else {
           setStatus(

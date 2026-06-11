@@ -45,8 +45,13 @@ const MAX_PROMPT_CHARS: usize = 24_000;
 pub struct ExtractionReport {
     pub doc_id: String,
     pub characters_added: u32,
+    /// Existing characters updated with new facts (aliases merged, empty
+    /// fields filled, or untouched same-doc entries refreshed).
+    pub characters_enriched: u32,
     /// Places + factions + lore concepts added to the World Bible.
     pub world_added: u32,
+    /// Existing world entries updated with new facts.
+    pub world_enriched: u32,
     pub threads_added: u32,
     /// True when chunks existed but were all filtered out (do-not-send),
     /// so the LLM was never called. The UI can show "skipped" instead
@@ -480,22 +485,25 @@ fn merge_into_stores(
     // ---- Characters ----
     if !payload.characters.is_empty() {
         let store = CharacterStore::new(projects);
-        let existing = store.list(project_id)?;
-        let mut existing_names: std::collections::HashSet<String> = existing
-            .iter()
-            .flat_map(|c| c.match_terms().map(|t| t.to_lowercase()))
-            .collect();
-        let mut all = existing;
+        let mut all = store.list(project_id)?;
         for cand in &payload.characters {
             let name = cand.name.trim();
             if name.is_empty() {
                 continue;
             }
             let key = name.to_lowercase();
-            if existing_names.contains(&key) {
+            // Name (or alias) already known → enrich instead of skip.
+            // A campaign evolves: new session notes carry new facts about
+            // existing people. See `enrich_character` for the rules.
+            if let Some(existing) = all
+                .iter_mut()
+                .find(|c| c.match_terms().any(|t| t.to_lowercase() == key))
+            {
+                if enrich_character(existing, cand, doc_id) {
+                    report.characters_enriched += 1;
+                }
                 continue;
             }
-            existing_names.insert(key);
             let mut c = Character::fresh(project_id, name);
             c.aliases = cand
                 .aliases
@@ -512,7 +520,7 @@ fn merge_into_stores(
             all.push(c);
             report.characters_added += 1;
         }
-        if report.characters_added > 0 {
+        if report.characters_added > 0 || report.characters_enriched > 0 {
             store.save(project_id, &all)?;
         }
     }
@@ -521,51 +529,48 @@ fn merge_into_stores(
     let total_world_to_consider = payload.locations_factions.len() + payload.lore_concepts.len();
     if total_world_to_consider > 0 {
         let store = WorldStore::new(projects);
-        let existing = store.list(project_id)?;
-        // Dedup by (kind, lowercased name) so a Location and a Faction can
-        // legitimately share a name without colliding.
-        let mut existing_keys: std::collections::HashSet<(WorldKind, String)> = existing
-            .iter()
-            .map(|w| (w.kind, w.name.to_lowercase()))
-            .collect();
-        let mut all = existing;
+        let mut all = store.list(project_id)?;
 
-        let mut push_world = |name: &str, descr: &str, kind: WorldKind, report_n: &mut u32| {
-            let name = name.trim();
-            if name.is_empty() {
-                return;
-            }
-            let key = (kind, name.to_lowercase());
-            if existing_keys.contains(&key) {
-                return;
-            }
-            existing_keys.insert(key);
-            let mut w = WorldEntry::fresh(project_id, name, kind);
-            w.description = descr.trim().to_string();
-            w.ai_suggested = true;
-            w.source_doc_id = Some(doc_id.to_string());
-            all.push(w);
-            *report_n += 1;
-        };
-
+        // Collect (name, description, kind) candidates from both arrays.
+        let mut candidates: Vec<(&str, &str, WorldKind)> = Vec::new();
         for cand in &payload.locations_factions {
             let kind = if cand.kind.trim().eq_ignore_ascii_case("faction") {
                 WorldKind::Faction
             } else {
                 WorldKind::Location
             };
-            push_world(&cand.name, &cand.description, kind, &mut report.world_added);
+            candidates.push((cand.name.trim(), cand.description.trim(), kind));
         }
         for cand in &payload.lore_concepts {
-            push_world(
-                &cand.name,
-                &cand.description,
-                WorldKind::Lore,
-                &mut report.world_added,
-            );
+            candidates.push((cand.name.trim(), cand.description.trim(), WorldKind::Lore));
         }
 
-        if report.world_added > 0 {
+        for (name, descr, kind) in candidates {
+            if name.is_empty() {
+                continue;
+            }
+            let key = name.to_lowercase();
+            // Match by name/alias across ALL kinds — if the user
+            // recategorized "Circle of Dawn" from faction to lore, a
+            // re-extraction must enrich that entry, not duplicate it.
+            if let Some(existing) = all.iter_mut().find(|w| {
+                w.name.trim().to_lowercase() == key
+                    || w.aliases.iter().any(|a| a.trim().to_lowercase() == key)
+            }) {
+                if enrich_world_entry(existing, descr, kind, doc_id) {
+                    report.world_enriched += 1;
+                }
+                continue;
+            }
+            let mut w = WorldEntry::fresh(project_id, name, kind);
+            w.description = descr.to_string();
+            w.ai_suggested = true;
+            w.source_doc_id = Some(doc_id.to_string());
+            all.push(w);
+            report.world_added += 1;
+        }
+
+        if report.world_added > 0 || report.world_enriched > 0 {
             store.save(project_id, &all)?;
         }
     }
@@ -602,6 +607,103 @@ fn merge_into_stores(
     }
 
     Ok(())
+}
+
+/// Enrich an existing character with newly-extracted facts. Returns true
+/// if anything changed.
+///
+/// Rules (user edits are sacred):
+/// - New aliases are always merged (case-insensitive dedup).
+/// - Empty fields are filled from the candidate.
+/// - If the entry is AI-suggested, has never been hand-edited
+///   (`updated_at == created_at` — user edits go through `update()` which
+///   bumps the timestamp; extraction writes never do), and came from this
+///   same doc, the doc is the entry's source of truth: refresh fields
+///   wholesale so an updated note keeps its entry current.
+fn enrich_character(
+    existing: &mut Character,
+    cand: &CandidateCharacter,
+    doc_id: &str,
+) -> bool {
+    let mut changed = merge_aliases(&mut existing.aliases, &existing.name, &cand.aliases);
+
+    let refresh = existing.ai_suggested
+        && existing.updated_at == existing.created_at
+        && existing.source_doc_id.as_deref() == Some(doc_id);
+
+    let mut apply = |field: &mut String, new_val: &str| {
+        let new_val = new_val.trim();
+        if new_val.is_empty() {
+            return;
+        }
+        if (refresh && *field != new_val) || field.is_empty() {
+            *field = new_val.to_string();
+            changed = true;
+        }
+    };
+    apply(&mut existing.motivation, &cand.motivation);
+    apply(&mut existing.voice_notes, &cand.voice_notes);
+    apply(&mut existing.arc_one_liner, &cand.arc_one_liner);
+
+    if refresh && !cand.role_guess.trim().is_empty() {
+        let role = parse_role(&cand.role_guess);
+        if existing.role != role {
+            existing.role = role;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// World-entry counterpart of `enrich_character`. Same refresh/fill rules;
+/// `kind` is only refreshed for untouched same-doc entries (a user's
+/// recategorization is deliberate and permanent).
+fn enrich_world_entry(
+    existing: &mut WorldEntry,
+    descr: &str,
+    kind: WorldKind,
+    doc_id: &str,
+) -> bool {
+    let mut changed = false;
+    let refresh = existing.ai_suggested
+        && existing.updated_at == existing.created_at
+        && existing.source_doc_id.as_deref() == Some(doc_id);
+
+    let descr = descr.trim();
+    if !descr.is_empty()
+        && ((refresh && existing.description != descr) || existing.description.is_empty())
+    {
+        existing.description = descr.to_string();
+        changed = true;
+    }
+    if refresh && existing.kind != kind {
+        existing.kind = kind;
+        changed = true;
+    }
+    changed
+}
+
+/// Merge `new` aliases into `existing`, skipping empties, duplicates
+/// (case-insensitive), and the primary name itself. Returns true if any
+/// alias was added.
+fn merge_aliases(existing: &mut Vec<String>, primary: &str, new: &[String]) -> bool {
+    let primary_l = primary.trim().to_lowercase();
+    let mut known: std::collections::HashSet<String> =
+        existing.iter().map(|a| a.trim().to_lowercase()).collect();
+    known.insert(primary_l);
+    let mut added = false;
+    for a in new {
+        let a = a.trim();
+        if a.is_empty() {
+            continue;
+        }
+        let key = a.to_lowercase();
+        if known.insert(key) {
+            existing.push(a.to_string());
+            added = true;
+        }
+    }
+    added
 }
 
 fn parse_role(s: &str) -> CharacterRole {
@@ -770,6 +872,102 @@ mod tests {
         assert_eq!(chars.len(), 1);
         // The user's hand-created entry must NOT have been flipped to ai_suggested.
         assert!(!chars[0].ai_suggested);
+    }
+
+    #[tokio::test]
+    async fn enriches_existing_character_fill_and_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+
+        // User created Kaelan by hand — minimal entry, no motivation.
+        let store = CharacterStore::new(&projects);
+        store.create(&p.id, "Kaelan").unwrap();
+
+        let chat = CannedChat::new(
+            r#"{
+  "characters": [
+    {"name": "Kaelan", "aliases": ["Kael", "kaelan"], "role_guess": "protagonist", "motivation": "Find his brother"}
+  ],
+  "locations_factions": [], "lore_concepts": [], "threads": []
+}"#,
+        );
+        let chunks = vec![make_chunk("doc_a", 0, "x", ChunkSensitivity::Public)];
+        let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
+            .await
+            .unwrap();
+
+        assert_eq!(report.characters_added, 0);
+        assert_eq!(report.characters_enriched, 1);
+        let chars = store.list(&p.id).unwrap();
+        assert_eq!(chars.len(), 1);
+        assert_eq!(chars[0].motivation, "Find his brother", "empty field filled");
+        assert_eq!(chars[0].aliases, vec!["Kael".to_string()], "alias merged, dup skipped");
+        assert!(!chars[0].ai_suggested, "hand-created entry keeps its provenance");
+        assert_eq!(
+            chars[0].role,
+            CharacterRole::Supporting,
+            "role untouched outside refresh mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn refreshes_untouched_ai_entry_but_respects_user_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = ProjectStore::new(dir.path());
+        let p = projects.create("Demo").unwrap();
+        let chunks = vec![make_chunk("doc_a", 0, "x", ChunkSensitivity::Public)];
+
+        // Pass 1: extraction creates Morn + Cinterra.
+        let chat1 = CannedChat::new(
+            r#"{
+  "characters": [{"name": "Morn", "motivation": "Old motivation"}],
+  "locations_factions": [{"name": "Cinterra", "kind": "location", "description": "Old description"}],
+  "lore_concepts": [], "threads": []
+}"#,
+        );
+        extract_and_merge(&p.id, "doc_a", &chunks, &chat1, &projects)
+            .await
+            .unwrap();
+
+        // User hand-edits Morn's motivation (bumps updated_at). Cinterra untouched.
+        let cstore = CharacterStore::new(&projects);
+        let morn_id = cstore.list(&p.id).unwrap()[0].id.clone();
+        cstore
+            .update(
+                &p.id,
+                &morn_id,
+                crate::models::brain::CharacterPatch {
+                    motivation: Some("My hand-written motivation".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        // Pass 2: same doc, updated facts.
+        let chat2 = CannedChat::new(
+            r#"{
+  "characters": [{"name": "Morn", "motivation": "New extracted motivation"}],
+  "locations_factions": [{"name": "Cinterra", "kind": "location", "description": "New description"}],
+  "lore_concepts": [], "threads": []
+}"#,
+        );
+        let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat2, &projects)
+            .await
+            .unwrap();
+
+        let morn = &cstore.list(&p.id).unwrap()[0];
+        assert_eq!(
+            morn.motivation, "My hand-written motivation",
+            "user-edited entry must never be overwritten"
+        );
+        let world = WorldStore::new(&projects).list(&p.id).unwrap();
+        assert_eq!(
+            world[0].description, "New description",
+            "untouched same-doc AI entry refreshes with the doc"
+        );
+        assert_eq!(report.world_enriched, 1);
+        assert_eq!(report.world_added, 0);
     }
 
     #[tokio::test]
