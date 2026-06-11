@@ -82,7 +82,9 @@ export interface DocMeta {
 export interface ExtractionReport {
   doc_id: string;
   characters_added: number;
+  characters_enriched: number;
   world_added: number;
+  world_enriched: number;
   threads_added: number;
   skipped_do_not_send: boolean;
   truncated: boolean;

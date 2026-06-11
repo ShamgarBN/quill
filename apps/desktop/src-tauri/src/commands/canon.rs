@@ -206,7 +206,11 @@ fn write_extraction_audit(
 ) {
     let (success, error, tokens_out) = match outcome {
         Ok(r) => {
-            let total = r.characters_added + r.world_added + r.threads_added;
+            let total = r.characters_added
+                + r.characters_enriched
+                + r.world_added
+                + r.world_enriched
+                + r.threads_added;
             (true, None, total)
         }
         Err(e) => (false, Some(e.to_string()), 0),
