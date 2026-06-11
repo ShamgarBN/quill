@@ -2,7 +2,7 @@
 //!
 //! Tested in isolation against synthetic beats / scenes / canon chunks.
 
-use crate::models::brain::{Character, Idea, Thread, ThreadStatus};
+use crate::models::brain::{Character, Idea, Thread, ThreadStatus, WorldEntry, WorldKind};
 use crate::models::canon::ChunkRef;
 use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
@@ -58,6 +58,13 @@ pub struct PromptInputs<'a> {
     /// Subset of `threads` (by id) that the active scene is currently
     /// tagged as touching.
     pub linked_thread_ids: &'a [String],
+
+    /// Curated World Bible entries (places / factions / lore) relevant to
+    /// this draft — matched by the orchestrator against the scene's
+    /// setting, the instruction, and the scene's recent prose. These are
+    /// the user-curated authoritative versions; they outrank raw canon
+    /// excerpts when the two disagree.
+    pub world_entries: &'a [WorldEntry],
 
     /// Reference style passages (voice anchors). Each is `(label, text)`.
     /// Already filtered to enabled pins, ordered by weight, possibly
@@ -264,6 +271,36 @@ fn build_user_message(inputs: &PromptInputs<'_>, included: &mut Vec<IncludedCate
             if !desc.is_empty() {
                 buf.push_str(": ");
                 buf.push_str(&trim_for_prompt(desc, 240));
+            }
+            buf.push('\n');
+        }
+        buf.push('\n');
+    }
+
+    // 3.58 World Bible entries (curated canon) -------------------------
+    if !inputs.world_entries.is_empty() {
+        included.push(IncludedCategory::WorldBibleEntry);
+        buf.push_str("# World Bible (curated canon)\n");
+        buf.push_str(
+            "The writer maintains these entries by hand — they are the \
+             authoritative versions of these places, factions, and concepts. \
+             Where a raw canon excerpt disagrees with an entry here, the \
+             entry wins.\n\n",
+        );
+        for w in inputs.world_entries {
+            let kind = match w.kind {
+                WorldKind::Location => "place",
+                WorldKind::Faction => "faction",
+                WorldKind::Lore => "lore",
+            };
+            buf.push_str(&format!("- **{}** ({kind})", w.name.trim()));
+            if !w.aliases.is_empty() {
+                buf.push_str(&format!(" [aka {}]", w.aliases.join(", ")));
+            }
+            let desc = w.description.trim();
+            if !desc.is_empty() {
+                buf.push_str(": ");
+                buf.push_str(&trim_for_prompt(desc, 600));
             }
             buf.push('\n');
         }
@@ -573,6 +610,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -619,6 +657,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -647,6 +686,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -679,6 +719,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -705,6 +746,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -764,6 +806,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -777,6 +820,46 @@ mod tests {
         assert!(assembled
             .included
             .contains(&IncludedCategory::CharacterBibleEntry));
+    }
+
+    #[test]
+    fn world_entries_render_as_curated_canon_block() {
+        let scene = fake_scene();
+        let mut cinterra = WorldEntry::fresh("p1", "Cinterra", WorldKind::Location);
+        cinterra.description = "Capital of Aevis; hub of technology.".into();
+        cinterra.aliases = vec!["the Nexus".into()];
+        let mut coven = WorldEntry::fresh("p1", "Coven of Shadows", WorldKind::Faction);
+        coven.description = "Morn's surviving cult.".into();
+        let world = vec![cinterra, coven];
+
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: None,
+            ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
+            world_entries: &world,
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# World Bible (curated canon)"));
+        assert!(user.contains("**Cinterra** (place) [aka the Nexus]: Capital of Aevis"));
+        assert!(user.contains("**Coven of Shadows** (faction): Morn's surviving cult."));
+        // The block declares precedence over raw canon excerpts.
+        assert!(user.contains("the entry wins"));
+        assert!(assembled
+            .included
+            .contains(&IncludedCategory::WorldBibleEntry));
     }
 
     #[test]
@@ -800,6 +883,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let user = &assemble_messages(&inputs).messages[1].content;
@@ -833,6 +917,7 @@ mod tests {
             ideas: &[],
             threads: &threads,
             linked_thread_ids: &linked,
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -872,6 +957,7 @@ mod tests {
             ideas: &ideas,
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);
@@ -902,6 +988,7 @@ mod tests {
             ideas: &[],
             threads: &[],
             linked_thread_ids: &[],
+            world_entries: &[],
             voice_anchors: &[],
         };
         let assembled = assemble_messages(&inputs);

@@ -25,6 +25,10 @@ pub enum IncludedCategory {
     /// Distinct from `CharacterPov` because the Bible carries motivation,
     /// voice, arc, etc. that the scene's POV string doesn't.
     CharacterBibleEntry,
+    /// Curated World Bible entries (places / factions / lore) whose name
+    /// or aliases matched the scene's setting, the instruction, or the
+    /// scene's recent prose.
+    WorldBibleEntry,
     /// Setting-kind canon chunk(s) matched by the scene's `setting` value.
     SettingCanon,
     /// Idea Park entries tagged for the active beat/scene/POV.

@@ -387,8 +387,17 @@ function PreviewBlock({
 
       {(preview.pov_character_name ||
         preview.setting_canon_count > 0 ||
+        preview.world_entry_count > 0 ||
         preview.idea_count > 0) && (
         <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
+          {preview.world_entry_count > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-accent"
+              title="Curated World Bible entries (places/factions/lore) matched against the scene's setting, your instruction, and recent prose"
+            >
+              World Bible: {preview.world_entry_count}
+            </span>
+          )}
           {preview.pov_character_name && (
             <span
               className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200"

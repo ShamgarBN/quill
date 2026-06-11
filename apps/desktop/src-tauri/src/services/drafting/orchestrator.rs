@@ -3,10 +3,10 @@
 //! provider, and the audit log.
 
 use crate::error::{QuillError, Result};
-use crate::models::brain::{Character, Idea, Thread};
+use crate::models::brain::{Character, Idea, Thread, WorldEntry};
 use crate::models::canon::{CanonKind, ChunkRef};
 use crate::models::structure::{Beat, Scene};
-use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore};
+use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore, WorldStore};
 use crate::services::canon::IngestService;
 use crate::services::drafting::prompt::{assemble_messages, PromptInputs};
 use crate::services::llm::{
@@ -97,6 +97,8 @@ pub struct DraftPreview {
     pub thread_count: u32,
     /// Number of those threads that the active scene is currently linked to.
     pub linked_thread_count: u32,
+    /// Number of curated World Bible entries matched into the prompt.
+    pub world_entry_count: u32,
     pub provider: String,
     pub model: String,
 }
@@ -144,6 +146,7 @@ impl<'a> DraftingService<'a> {
             ideas,
             threads,
             linked_thread_ids,
+            world_entries,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -172,6 +175,7 @@ impl<'a> DraftingService<'a> {
             ideas: &ideas,
             threads: &threads,
             linked_thread_ids: &linked_thread_ids,
+            world_entries: &world_entries,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -189,6 +193,7 @@ impl<'a> DraftingService<'a> {
             idea_count: ideas.len() as u32,
             thread_count: threads.len() as u32,
             linked_thread_count: linked_thread_ids.len() as u32,
+            world_entry_count: world_entries.len() as u32,
             provider: chat_provider.provider_id().to_string(),
             model: chat_provider.model_id().to_string(),
         })
@@ -214,6 +219,7 @@ impl<'a> DraftingService<'a> {
             ideas,
             threads,
             linked_thread_ids,
+            world_entries,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -252,6 +258,7 @@ impl<'a> DraftingService<'a> {
             ideas: &ideas,
             threads: &threads,
             linked_thread_ids: &linked_thread_ids,
+            world_entries: &world_entries,
             voice_anchors: &voice_anchors,
         };
         let assembled = assemble_messages(&inputs);
@@ -473,6 +480,19 @@ impl<'a> DraftingService<'a> {
             .cloned()
             .collect();
 
+        // World Bible: curated places / factions / lore whose name or
+        // alias is mentioned by the scene's setting, the instruction, or
+        // the scene's recent prose. These are the user-maintained
+        // authoritative entries — the prompt tells the model they outrank
+        // raw canon excerpts.
+        let world_entries = match_world_entries(
+            WorldStore::new(self.projects).list(&req.project_id)?,
+            scene.setting.as_deref(),
+            &req.instruction,
+            &prior_text,
+            MAX_WORLD_ENTRIES,
+        );
+
         Ok(DraftContext {
             scene,
             beat,
@@ -485,10 +505,70 @@ impl<'a> DraftingService<'a> {
             ideas,
             threads,
             linked_thread_ids,
+            world_entries,
             voice_anchors,
             current_drift,
         })
     }
+}
+
+/// Cap on World Bible entries injected per draft. Six curated paragraphs
+/// is plenty of grounding without crowding out the prose context.
+const MAX_WORLD_ENTRIES: usize = 6;
+
+/// How much of the scene's trailing prose to scan for entry mentions.
+const WORLD_MATCH_PROSE_TAIL_CHARS: usize = 1_500;
+
+/// Select the World Bible entries relevant to this draft, prioritized:
+/// setting matches (3) > instruction matches (2) > recent-prose matches (1).
+/// Names/aliases shorter than 3 chars are ignored to avoid noise hits.
+fn match_world_entries(
+    entries: Vec<WorldEntry>,
+    setting: Option<&str>,
+    instruction: &str,
+    prior_text: &str,
+    cap: usize,
+) -> Vec<WorldEntry> {
+    if entries.is_empty() || cap == 0 {
+        return Vec::new();
+    }
+    let setting_l = setting.unwrap_or("").to_lowercase();
+    let instruction_l = instruction.to_lowercase();
+    // Tail of the prose, sliced on a char boundary.
+    let tail_start = prior_text
+        .char_indices()
+        .rev()
+        .nth(WORLD_MATCH_PROSE_TAIL_CHARS.saturating_sub(1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let prose_l = prior_text[tail_start..].to_lowercase();
+
+    let mut scored: Vec<(u8, WorldEntry)> = Vec::new();
+    for w in entries {
+        let mut terms: Vec<String> = vec![w.name.trim().to_lowercase()];
+        terms.extend(w.aliases.iter().map(|a| a.trim().to_lowercase()));
+        terms.retain(|t| t.len() >= 3);
+        if terms.is_empty() {
+            continue;
+        }
+        let hit = |hay: &str| terms.iter().any(|t| hay.contains(t.as_str()));
+        let score = if hit(&setting_l) {
+            3
+        } else if hit(&instruction_l) {
+            2
+        } else if hit(&prose_l) {
+            1
+        } else {
+            0
+        };
+        if score > 0 {
+            scored.push((score, w));
+        }
+    }
+    // Stable sort keeps the store's (alphabetical) order within a tier.
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.truncate(cap);
+    scored.into_iter().map(|(_, w)| w).collect()
 }
 
 /// Internal struct collecting everything `gather_context` produces.
@@ -504,6 +584,7 @@ struct DraftContext {
     ideas: Vec<Idea>,
     threads: Vec<Thread>,
     linked_thread_ids: Vec<String>,
+    world_entries: Vec<WorldEntry>,
     voice_anchors: Vec<(String, String)>,
     current_drift: Option<f32>,
 }
@@ -525,6 +606,65 @@ mod tests {
     use crate::services::structure::StructureStore;
     use crate::services::vector::JsonVectorStore;
     use crate::services::voice::ReferencePinStore;
+
+    use crate::models::brain::WorldKind;
+
+    fn world(name: &str, kind: WorldKind, aliases: &[&str]) -> WorldEntry {
+        let mut w = WorldEntry::fresh("p1", name, kind);
+        w.aliases = aliases.iter().map(|s| s.to_string()).collect();
+        w
+    }
+
+    #[test]
+    fn world_match_prioritizes_setting_then_instruction_then_prose() {
+        let entries = vec![
+            world("Cinterra", WorldKind::Location, &[]),
+            world("Coven of Shadows", WorldKind::Faction, &["the Coven"]),
+            world("Meridian Grid", WorldKind::Lore, &[]),
+            world("Volara", WorldKind::Location, &[]),
+        ];
+        let picked = match_world_entries(
+            entries,
+            Some("the Scrape, beneath Cinterra"),
+            "have the coven agents close in",
+            "…the hum of the Meridian Grid overhead never stopped.",
+            6,
+        );
+        let names: Vec<&str> = picked.iter().map(|w| w.name.as_str()).collect();
+        // Setting hit first, instruction hit (via alias) second, prose hit third.
+        assert_eq!(names, vec!["Cinterra", "Coven of Shadows", "Meridian Grid"]);
+    }
+
+    #[test]
+    fn world_match_caps_results_and_ignores_short_terms() {
+        let mut entries: Vec<WorldEntry> = (0..10)
+            .map(|i| world(&format!("Place{i}"), WorldKind::Location, &[]))
+            .collect();
+        // Two-char name must never match, even though "ar" appears everywhere.
+        entries.push(world("ar", WorldKind::Lore, &[]));
+        let picked = match_world_entries(
+            entries,
+            Some("Place0 Place1 Place2 Place3 Place4 Place5 Place6 ar"),
+            "",
+            "",
+            4,
+        );
+        assert_eq!(picked.len(), 4, "capped at 4");
+        assert!(picked.iter().all(|w| w.name != "ar"), "short names ignored");
+    }
+
+    #[test]
+    fn world_match_scans_only_the_prose_tail() {
+        let entries = vec![world("Thalvenor", WorldKind::Location, &[])];
+        // Mention sits ~10k chars before the end — outside the scanned tail.
+        let mut prose = String::from("Thalvenor was far behind them now. ");
+        prose.push_str(&"x".repeat(10_000));
+        let picked = match_world_entries(entries, None, "", &prose, 6);
+        assert!(
+            picked.is_empty(),
+            "early-scene mentions beyond the tail window don't match"
+        );
+    }
 
     struct Harness {
         _tmp: tempfile::TempDir,
