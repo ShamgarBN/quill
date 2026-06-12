@@ -143,9 +143,17 @@ mod tests {
         let projects = ProjectStore::new(dir.path());
         let p = projects.create("Demo").unwrap();
         let store = DocMetaStore::new(&projects);
-        assert!(store.get(&p.id, "doc_x").unwrap().last_extracted_at.is_none());
+        assert!(store
+            .get(&p.id, "doc_x")
+            .unwrap()
+            .last_extracted_at
+            .is_none());
         store.mark_extracted(&p.id, "doc_x").unwrap();
-        assert!(store.get(&p.id, "doc_x").unwrap().last_extracted_at.is_some());
+        assert!(store
+            .get(&p.id, "doc_x")
+            .unwrap()
+            .last_extracted_at
+            .is_some());
     }
 
     #[test]

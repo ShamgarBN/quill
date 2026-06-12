@@ -26,6 +26,9 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
   CircleSlash,
   Download,
   Loader2,
@@ -39,6 +42,8 @@ import { useApp } from "@/stores/app";
 import * as ipc from "@/lib/ipc";
 import type {
   BeatSheet,
+  Chapter,
+  ChapterPatch,
   DraftOperation,
   DriftReport,
   Scene,
@@ -82,6 +87,14 @@ export function ManuscriptView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [draftingOpen, setDraftingOpen] = useState(false);
   const [creatingScene, setCreatingScene] = useState(false);
+  /** Chapter the pending new-scene dialog should create into; null =
+   *  chapter of the active scene (or last chapter). */
+  const [creatingSceneIn, setCreatingSceneIn] = useState<string | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [creatingChapter, setCreatingChapter] = useState(false);
+  /** When set, the center pane shows the chapter editor instead of the
+   *  scene editor. Picking a scene clears it. */
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ start: number; end: number }>({
     start: 0,
     end: 0,
@@ -119,11 +132,14 @@ export function ManuscriptView(): JSX.Element {
   const selectionText =
     selection.end > selection.start ? text.slice(selection.start, selection.end) : "";
 
-  // Refresh scene list whenever the project changes.
+  // Refresh chapter + scene lists whenever the project changes. Chapters
+  // load first so the backend migration has run before scenes are read.
   const refreshScenes = useCallback(async () => {
     if (!project) return;
     try {
+      const chapterList = await ipc.structureChaptersList(project.id);
       const list = await ipc.structureScenesList(project.id);
+      setChapters(chapterList);
       setScenes(list);
       // Auto-select the first scene if nothing is active.
       setActiveId((curr) => {
@@ -265,22 +281,157 @@ export function ManuscriptView(): JSX.Element {
   // Manual scene CRUD handlers
   const onCreateScene = useCallback(() => {
     if (!project) return;
+    setCreatingSceneIn(null);
     setCreatingScene(true);
   }, [project]);
+
+  const onCreateSceneInChapter = useCallback(
+    (chapterId: string) => {
+      if (!project) return;
+      setCreatingSceneIn(chapterId);
+      setCreatingScene(true);
+    },
+    [project],
+  );
 
   const submitCreateScene = useCallback(
     async (title: string) => {
       if (!project) return;
       setCreatingScene(false);
       try {
-        const s = await ipc.structureSceneCreate(project.id, title);
+        // Target: the explicitly requested chapter, else the active
+        // scene's chapter, else backend default (last chapter).
+        const fallback = scenes.find((s) => s.id === activeId)?.chapter_id ?? undefined;
+        const s = await ipc.structureSceneCreate(
+          project.id,
+          title,
+          undefined,
+          creatingSceneIn ?? fallback,
+        );
         await refreshScenes();
+        setActiveChapterId(null);
         setActiveId(s.id);
       } catch (e) {
         setError(messageOf(e));
       }
     },
+    [project, refreshScenes, creatingSceneIn, scenes, activeId],
+  );
+
+  // ---- Chapter handlers ----
+
+  const submitCreateChapter = useCallback(
+    async (title: string) => {
+      if (!project) return;
+      setCreatingChapter(false);
+      try {
+        const c = await ipc.structureChapterCreate(project.id, title);
+        await refreshScenes();
+        setActiveChapterId(c.id);
+      } catch (e) {
+        setError(messageOf(e));
+      }
+    },
     [project, refreshScenes],
+  );
+
+  const onDeleteChapter = useCallback(
+    async (chapterId: string) => {
+      if (!project) return;
+      const ch = chapters.find((c) => c.id === chapterId);
+      if (!ch) return;
+      const n = scenes.filter((s) => s.chapter_id === chapterId).length;
+      const msg =
+        n > 0
+          ? `Delete "${ch.title}"? Its ${n} scene${n === 1 ? "" : "s"} move to the neighboring chapter.`
+          : `Delete empty chapter "${ch.title}"?`;
+      if (!window.confirm(msg)) return;
+      try {
+        await ipc.structureChapterDelete(project.id, chapterId);
+        if (activeChapterId === chapterId) setActiveChapterId(null);
+        await refreshScenes();
+      } catch (e) {
+        setError(messageOf(e));
+      }
+    },
+    [project, chapters, scenes, activeChapterId, refreshScenes],
+  );
+
+  const onPatchChapter = useCallback(
+    async (chapterId: string, patch: ChapterPatch) => {
+      if (!project) return;
+      try {
+        const updated = await ipc.structureChapterUpdate(project.id, chapterId, patch);
+        setChapters((curr) => curr.map((c) => (c.id === updated.id ? updated : c)));
+      } catch (e) {
+        setError(messageOf(e));
+      }
+    },
+    [project],
+  );
+
+  const onMoveChapter = useCallback(
+    async (chapterId: string, dir: -1 | 1) => {
+      if (!project) return;
+      const ids = chapters.map((c) => c.id);
+      const i = ids.indexOf(chapterId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= ids.length) return;
+      const a = ids[i];
+      const b = ids[j];
+      if (a === undefined || b === undefined) return;
+      ids[i] = b;
+      ids[j] = a;
+      try {
+        await ipc.structureChapterReorder(project.id, ids);
+        await refreshScenes();
+      } catch (e) {
+        setError(messageOf(e));
+      }
+    },
+    [project, chapters, refreshScenes],
+  );
+
+  const onMoveScene = useCallback(
+    async (sceneId: string, chapterId: string, index: number) => {
+      if (!project) return;
+      try {
+        await ipc.structureSceneMove(project.id, sceneId, chapterId, index);
+        await refreshScenes();
+      } catch (e) {
+        setError(messageOf(e));
+        await refreshScenes();
+      }
+    },
+    [project, refreshScenes],
+  );
+
+  const onExportChapter = useCallback(
+    async (ch: Chapter) => {
+      if (!project) return;
+      setCompileStatus(null);
+      try {
+        const n = chapters.findIndex((c) => c.id === ch.id) + 1;
+        const safe = `${project.name} ${ch.title}`
+          .replace(/[^a-zA-Z0-9 _-]+/g, "_")
+          .trim();
+        const path = await saveDialog({
+          defaultPath: `${safe || `chapter-${n}`}.md`,
+          filters: [{ name: "Markdown", extensions: ["md"] }],
+        });
+        if (typeof path !== "string") return;
+        const report = await ipc.manuscriptCompile(project.id, path, {
+          only_chapter_id: ch.id,
+        });
+        setCompileStatus({
+          kind: "ok",
+          message: `Exported "${ch.title}" — ${report.scene_count} scene${report.scene_count === 1 ? "" : "s"} · ${report.word_count.toLocaleString()} words → ${path}`,
+        });
+      } catch (e) {
+        setCompileStatus({ kind: "error", message: messageOf(e) });
+      }
+    },
+    [project, chapters],
   );
 
   const onDeleteScene = async (id: string) => {
@@ -392,31 +543,6 @@ export function ManuscriptView(): JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
     // Listing every dep keeps this fresh; onCreateScene is stable enough.
   }, [scenes, activeId, visibleStatuses, onCreateScene]);
-
-  const onReorderScenes = useCallback(
-    async (idsInOrder: string[]) => {
-      if (!project) return;
-      // Optimistic update so the rail doesn't flicker.
-      setScenes((curr) => {
-        const map = new Map(curr.map((s) => [s.id, s]));
-        return idsInOrder
-          .map((id, idx) => {
-            const s = map.get(id);
-            return s ? { ...s, order: idx } : null;
-          })
-          .filter((s): s is Scene => s !== null);
-      });
-      try {
-        await ipc.structureSceneReorder(project.id, idsInOrder);
-        await refreshScenes();
-      } catch (e) {
-        setError(messageOf(e));
-        // Revert by re-pulling from disk.
-        await refreshScenes();
-      }
-    },
-    [project, refreshScenes],
-  );
 
   // Enter track-changes review mode for an AI suggestion. The full
   // candidate scene text is composed here from the operation:
@@ -582,18 +708,48 @@ export function ManuscriptView(): JSX.Element {
       <div className="flex flex-1 overflow-hidden">
         <SceneRail
           scenes={scenes}
-          activeId={activeId}
-          onPick={setActiveId}
+          chapters={chapters}
+          activeId={activeChapterId ? null : activeId}
+          activeChapterId={activeChapterId}
+          onPick={(id) => {
+            setActiveChapterId(null);
+            setActiveId(id);
+          }}
+          onPickChapter={setActiveChapterId}
           onCreate={onCreateScene}
+          onCreateInChapter={onCreateSceneInChapter}
+          onCreateChapter={() => setCreatingChapter(true)}
           onDelete={onDeleteScene}
-          onReorder={onReorderScenes}
+          onDeleteChapter={(id) => void onDeleteChapter(id)}
+          onMoveScene={(sceneId, chapterId, index) =>
+            void onMoveScene(sceneId, chapterId, index)
+          }
+          onMoveChapter={(id, dir) => void onMoveChapter(id, dir)}
+          onExportChapter={(ch) => void onExportChapter(ch)}
           beatSheet={beatSheet}
           visibleStatuses={visibleStatuses}
           onToggleStatus={toggleStatusFilter}
         />
 
         <div className="flex flex-1 flex-col">
-          {!activeId ? (
+          {activeChapterId ? (
+            (() => {
+              const ch = chapters.find((c) => c.id === activeChapterId);
+              if (!ch) return <EmptyState onCreate={onCreateScene} />;
+              const chapterWords = scenes
+                .filter((s) => s.chapter_id === ch.id)
+                .reduce((acc, s) => acc + s.word_count, 0);
+              return (
+                <ChapterEditor
+                  key={ch.id}
+                  chapter={ch}
+                  number={chapters.findIndex((c) => c.id === ch.id) + 1}
+                  words={chapterWords}
+                  onPatch={(patch) => void onPatchChapter(ch.id, patch)}
+                />
+              );
+            })()
+          ) : !activeId ? (
             <EmptyState onCreate={onCreateScene} />
           ) : reviewMode ? (
             <DiffReviewPane
@@ -634,7 +790,7 @@ export function ManuscriptView(): JSX.Element {
           )}
         </div>
 
-        {draftingOpen && activeId && !reviewMode && (
+        {draftingOpen && activeId && !reviewMode && !activeChapterId && (
           <DraftingPanel
             sceneId={activeId}
             selection={selectionText}
@@ -651,6 +807,16 @@ export function ManuscriptView(): JSX.Element {
           submitLabel="Create scene"
           onSubmit={(v) => void submitCreateScene(v)}
           onCancel={() => setCreatingScene(false)}
+        />
+      )}
+      {creatingChapter && (
+        <PromptDialog
+          title="New chapter"
+          label="Title"
+          placeholder={`e.g. "Chapter ${chapters.length + 1}" or a working title`}
+          submitLabel="Create chapter"
+          onSubmit={(v) => void submitCreateChapter(v)}
+          onCancel={() => setCreatingChapter(false)}
         />
       )}
     </div>
@@ -670,28 +836,51 @@ const ALL_STATUSES: SceneStatus[] = [
 
 function SceneRail({
   scenes,
+  chapters,
   activeId,
+  activeChapterId,
   onPick,
+  onPickChapter,
   onCreate,
+  onCreateInChapter,
+  onCreateChapter,
   onDelete,
-  onReorder,
+  onDeleteChapter,
+  onMoveScene,
+  onMoveChapter,
+  onExportChapter,
   beatSheet,
   visibleStatuses,
   onToggleStatus,
 }: {
   scenes: Scene[];
+  chapters: Chapter[];
   activeId: string | null;
+  activeChapterId: string | null;
   onPick: (id: string) => void;
+  onPickChapter: (id: string) => void;
   onCreate: () => void;
+  onCreateInChapter: (chapterId: string) => void;
+  onCreateChapter: () => void;
   onDelete: (id: string) => void;
-  onReorder: (idsInOrder: string[]) => void;
+  onDeleteChapter: (id: string) => void;
+  onMoveScene: (sceneId: string, chapterId: string, index: number) => void;
+  onMoveChapter: (id: string, dir: -1 | 1) => void;
+  onExportChapter: (ch: Chapter) => void;
   beatSheet: BeatSheet | null;
   visibleStatuses: Set<SceneStatus>;
   onToggleStatus: (s: SceneStatus) => void;
 }): JSX.Element {
   const [dragId, setDragId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
-  const filteredScenes = scenes.filter((s) => visibleStatuses.has(s.status));
+  /** Scene id or `chapter:<id>` the cursor is currently over. */
+  const [overKey, setOverKey] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const filteredCount = scenes.filter((s) => visibleStatuses.has(s.status)).length;
+
+  const clearDrag = (): void => {
+    setDragId(null);
+    setOverKey(null);
+  };
 
   const onDragStart =
     (id: string) =>
@@ -700,43 +889,52 @@ function SceneRail({
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", id);
     };
-  const onDragOver =
-    (id: string) =>
+  const allowOver =
+    (key: string) =>
     (e: React.DragEvent): void => {
-      if (!dragId || dragId === id) return;
+      if (!dragId || dragId === key) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      setOverId(id);
+      setOverKey(key);
     };
-  const onDrop =
-    (targetId: string) =>
+  /** Drop before a scene row: same chapter as the target, at the target's
+   *  position among the chapter's scenes (the dragged scene excluded —
+   *  that matches the backend's remove-then-insert semantics). */
+  const onDropOnScene =
+    (target: Scene) =>
     (e: React.DragEvent): void => {
       e.preventDefault();
-      if (!dragId || dragId === targetId) {
-        setDragId(null);
-        setOverId(null);
-        return;
-      }
-      // Compute the new order: remove dragId from its current slot, then
-      // insert it immediately before targetId.
-      const ids = scenes.map((s) => s.id);
-      const from = ids.indexOf(dragId);
-      const to = ids.indexOf(targetId);
-      if (from < 0 || to < 0) {
-        setDragId(null);
-        setOverId(null);
-        return;
-      }
-      ids.splice(from, 1);
-      const insertAt = from < to ? to - 1 : to;
-      ids.splice(insertAt, 0, dragId);
-      setDragId(null);
-      setOverId(null);
-      onReorder(ids);
+      const id = dragId;
+      clearDrag();
+      if (!id || id === target.id || !target.chapter_id) return;
+      const siblings = scenes.filter(
+        (s) => s.chapter_id === target.chapter_id && s.id !== id,
+      );
+      const index = siblings.findIndex((s) => s.id === target.id);
+      if (index < 0) return;
+      onMoveScene(id, target.chapter_id, index);
     };
-  const onDragEnd = (): void => {
-    setDragId(null);
-    setOverId(null);
+  /** Drop on a chapter header: append to the end of that chapter. */
+  const onDropOnChapter =
+    (chapterId: string) =>
+    (e: React.DragEvent): void => {
+      e.preventDefault();
+      const id = dragId;
+      clearDrag();
+      if (!id) return;
+      const count = scenes.filter(
+        (s) => s.chapter_id === chapterId && s.id !== id,
+      ).length;
+      onMoveScene(id, chapterId, count);
+    };
+
+  const toggleCollapse = (id: string): void => {
+    setCollapsed((curr) => {
+      const next = new Set(curr);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -744,45 +942,254 @@ function SceneRail({
       <ProgressCard scenes={scenes} beatSheet={beatSheet} />
       <div className="flex items-center justify-between border-b border-line-subtle px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
         <span>
-          Scenes ({filteredScenes.length}
-          {filteredScenes.length !== scenes.length && ` / ${scenes.length}`})
+          Scenes ({filteredCount}
+          {filteredCount !== scenes.length && ` / ${scenes.length}`})
         </span>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="qbtn-ghost inline-flex h-6 items-center gap-1 px-1.5 text-xs"
-          title="Create scene"
-        >
-          <Plus className="h-3.5 w-3.5" /> New
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={onCreateChapter}
+            className="qbtn-ghost inline-flex h-6 items-center gap-1 px-1.5 text-xs"
+            title="Create chapter"
+          >
+            <Plus className="h-3.5 w-3.5" /> Chapter
+          </button>
+          <button
+            type="button"
+            onClick={onCreate}
+            className="qbtn-ghost inline-flex h-6 items-center gap-1 px-1.5 text-xs"
+            title="Create scene (⌘N)"
+          >
+            <Plus className="h-3.5 w-3.5" /> Scene
+          </button>
+        </div>
       </div>
       <StatusFilter visible={visibleStatuses} onToggle={onToggleStatus} />
       <div className="flex-1 overflow-y-auto py-1">
-        {filteredScenes.length === 0 ? (
+        {scenes.length === 0 && chapters.length === 0 ? (
           <div className="px-3 py-4 text-xs text-ink-faint">
-            {scenes.length === 0
-              ? "No scenes yet. Create one to start writing."
-              : "No scenes match the current filter."}
+            No scenes yet. Create one to start writing.
           </div>
         ) : (
-          filteredScenes.map((s) => (
-            <SceneRow
-              key={s.id}
-              scene={s}
-              active={s.id === activeId}
-              onPick={() => onPick(s.id)}
-              onDelete={() => onDelete(s.id)}
-              isDragging={dragId === s.id}
-              isDropTarget={overId === s.id && dragId !== null && dragId !== s.id}
-              onDragStart={onDragStart(s.id)}
-              onDragOver={onDragOver(s.id)}
-              onDrop={onDrop(s.id)}
-              onDragEnd={onDragEnd}
-            />
-          ))
+          chapters.map((ch, chIdx) => {
+            const inChapter = scenes.filter((s) => s.chapter_id === ch.id);
+            const visible = inChapter.filter((s) => visibleStatuses.has(s.status));
+            const words = inChapter.reduce((acc, s) => acc + s.word_count, 0);
+            const isCollapsed = collapsed.has(ch.id);
+            return (
+              <div key={ch.id}>
+                <div
+                  onDragOver={allowOver(`chapter:${ch.id}`)}
+                  onDrop={onDropOnChapter(ch.id)}
+                  onDragLeave={() => setOverKey(null)}
+                  className={cn(
+                    "group flex items-center gap-1 border-b border-line-subtle/60 px-2 py-1.5",
+                    activeChapterId === ch.id && "bg-accent-subtle",
+                    overKey === `chapter:${ch.id}` &&
+                      "outline outline-1 outline-accent",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(ch.id)}
+                    className="qbtn-ghost h-5 w-5 shrink-0 p-0"
+                    title={isCollapsed ? "Expand chapter" : "Collapse chapter"}
+                    aria-label={isCollapsed ? "Expand chapter" : "Collapse chapter"}
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPickChapter(ch.id)}
+                    className="flex min-w-0 flex-1 flex-col items-start text-left"
+                    title="Edit chapter (title, word target, hook notes)"
+                  >
+                    <span className="w-full truncate text-xs font-semibold text-ink">
+                      {chIdx + 1}. {ch.title}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-ink-faint">
+                      {words.toLocaleString()}
+                      {ch.target_word_count
+                        ? ` / ${ch.target_word_count.toLocaleString()}`
+                        : ""}{" "}
+                      words · {inChapter.length} scene
+                      {inChapter.length === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                  <div className="invisible flex items-center gap-0.5 group-hover:visible">
+                    <button
+                      type="button"
+                      onClick={() => onMoveChapter(ch.id, -1)}
+                      disabled={chIdx === 0}
+                      className="qbtn-ghost h-5 w-5 p-0 disabled:opacity-30"
+                      title="Move chapter up"
+                      aria-label="Move chapter up"
+                    >
+                      <ChevronUp className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMoveChapter(ch.id, 1)}
+                      disabled={chIdx === chapters.length - 1}
+                      className="qbtn-ghost h-5 w-5 p-0 disabled:opacity-30"
+                      title="Move chapter down"
+                      aria-label="Move chapter down"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCreateInChapter(ch.id)}
+                      className="qbtn-ghost h-5 w-5 p-0"
+                      title="New scene in this chapter"
+                      aria-label="New scene in this chapter"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onExportChapter(ch)}
+                      className="qbtn-ghost h-5 w-5 p-0"
+                      title="Export this chapter to Markdown"
+                      aria-label="Export this chapter"
+                    >
+                      <Download className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteChapter(ch.id)}
+                      className="qbtn-ghost h-5 w-5 p-0 text-ink-faint hover:text-rose-600"
+                      title="Delete chapter (scenes move to the neighboring chapter)"
+                      aria-label="Delete chapter"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                {!isCollapsed &&
+                  (visible.length === 0 ? (
+                    <div className="px-8 py-1.5 text-[11px] text-ink-faint">
+                      {inChapter.length === 0
+                        ? "No scenes — drop one here or use +"
+                        : "No scenes match the filter."}
+                    </div>
+                  ) : (
+                    visible.map((s) => (
+                      <SceneRow
+                        key={s.id}
+                        scene={s}
+                        active={s.id === activeId}
+                        onPick={() => onPick(s.id)}
+                        onDelete={() => onDelete(s.id)}
+                        isDragging={dragId === s.id}
+                        isDropTarget={
+                          overKey === s.id && dragId !== null && dragId !== s.id
+                        }
+                        onDragStart={onDragStart(s.id)}
+                        onDragOver={allowOver(s.id)}
+                        onDrop={onDropOnScene(s)}
+                        onDragEnd={clearDrag}
+                      />
+                    ))
+                  ))}
+              </div>
+            );
+          })
         )}
       </div>
     </aside>
+  );
+}
+
+/** Center-pane editor for a chapter's pacing metadata. Debounced patches,
+ *  same pattern as the Threads editor. */
+function ChapterEditor({
+  chapter,
+  number,
+  words,
+  onPatch,
+}: {
+  chapter: Chapter;
+  number: number;
+  words: number;
+  onPatch: (patch: ChapterPatch) => void;
+}): JSX.Element {
+  const [title, setTitle] = useState(chapter.title);
+  const [target, setTarget] = useState(
+    chapter.target_word_count != null ? String(chapter.target_word_count) : "",
+  );
+  const [notes, setNotes] = useState(chapter.notes);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queue = (patch: ChapterPatch): void => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onPatch(patch), 600);
+  };
+
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-6">
+        <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">
+          Chapter {number}
+        </div>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Title
+          </span>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              queue({ title: e.target.value });
+            }}
+            className="qinput w-full text-base"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Target words ({words.toLocaleString()} written)
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={target}
+            onChange={(e) => {
+              setTarget(e.target.value);
+              const n = parseInt(e.target.value, 10);
+              queue({
+                target_word_count: Number.isFinite(n) && n > 0 ? n : null,
+              });
+            }}
+            placeholder="e.g. 2500 — YA chapters usually run 1.5–3k"
+            className="qinput w-full"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Chapter intent / hook notes
+          </span>
+          <textarea
+            value={notes}
+            onChange={(e) => {
+              setNotes(e.target.value);
+              queue({ notes: e.target.value });
+            }}
+            rows={6}
+            className="qinput w-full font-prose text-sm"
+            placeholder="What must this chapter accomplish? What turn does it land on? The AI sees this while drafting — and is told to end the final scene on a hook."
+          />
+        </label>
+        <p className="text-xs text-ink-faint">
+          The AI knows each scene's position in this chapter, the running word count vs
+          the target, and these notes. The chapter's final scene gets an explicit "end
+          on a page-turning hook" directive.
+        </p>
+      </div>
+    </div>
   );
 }
 

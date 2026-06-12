@@ -133,10 +133,7 @@ pub fn brain_thread_delete(
 // ---------- World Bible (places / factions / lore) ----------
 
 #[tauri::command]
-pub fn brain_world_list(
-    state: State<'_, AppState>,
-    project_id: String,
-) -> Result<Vec<WorldEntry>> {
+pub fn brain_world_list(state: State<'_, AppState>, project_id: String) -> Result<Vec<WorldEntry>> {
     // One-shot, idempotent migration: earlier builds routed extracted
     // locations/factions/lore into the Idea Park (tagged world/faction/
     // lore). Relocate those AI-suggested ideas into the World Bible the
@@ -250,10 +247,7 @@ fn split_legacy_idea_text(text: &str) -> (String, String) {
         if let Some(end) = rest.find("**") {
             let name = rest[..end].trim().to_string();
             let after = rest[end + 2..].trim_start();
-            let desc = after
-                .trim_start_matches(['—', '-', ':'])
-                .trim()
-                .to_string();
+            let desc = after.trim_start_matches(['—', '-', ':']).trim().to_string();
             return (name, desc);
         }
     }
@@ -304,11 +298,35 @@ mod tests {
         let p = projects.create("Demo").unwrap();
         let ideas = IdeaStore::new(&projects);
 
-        seed_legacy_idea(&ideas, &p.id, "**Aevis** — A continent of six regions.", "world", true);
-        seed_legacy_idea(&ideas, &p.id, "**Coven of Shadows** — Morn's cult.", "faction", true);
-        seed_legacy_idea(&ideas, &p.id, "**The Seal** — Stone tablet prison.", "lore", true);
+        seed_legacy_idea(
+            &ideas,
+            &p.id,
+            "**Aevis** — A continent of six regions.",
+            "world",
+            true,
+        );
+        seed_legacy_idea(
+            &ideas,
+            &p.id,
+            "**Coven of Shadows** — Morn's cult.",
+            "faction",
+            true,
+        );
+        seed_legacy_idea(
+            &ideas,
+            &p.id,
+            "**The Seal** — Stone tablet prison.",
+            "lore",
+            true,
+        );
         // User's own note with a colliding tag — must NOT migrate.
-        seed_legacy_idea(&ideas, &p.id, "my own worldbuilding thought", "world", false);
+        seed_legacy_idea(
+            &ideas,
+            &p.id,
+            "my own worldbuilding thought",
+            "world",
+            false,
+        );
 
         migrate_legacy_world_ideas(&projects, &p.id).unwrap();
 

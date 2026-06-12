@@ -1,7 +1,7 @@
 //! Structural engine commands.
 
 use crate::error::Result;
-use crate::models::structure::{BeatId, BeatSheet, Scene};
+use crate::models::structure::{BeatId, BeatSheet, Chapter, ChapterPatch, Scene};
 use crate::services::structure::{parse_outline, ImportPreview, StructureStore};
 use crate::state::AppState;
 use serde::Deserialize;
@@ -104,7 +104,11 @@ pub fn structure_outline_apply(
 
 #[tauri::command]
 pub fn structure_scenes_list(state: State<'_, AppState>, project_id: String) -> Result<Vec<Scene>> {
-    StructureStore::new(&state.projects).load_scenes(&project_id)
+    let store = StructureStore::new(&state.projects);
+    // Run the chapter migration/self-heal before listing so the rail
+    // always sees consistent chapter assignments.
+    store.ensure_chapters(&project_id)?;
+    store.load_scenes(&project_id)
 }
 
 #[tauri::command]
@@ -113,8 +117,72 @@ pub fn structure_scene_create(
     project_id: String,
     title: String,
     beat_id: Option<BeatId>,
+    chapter_id: Option<String>,
 ) -> Result<Scene> {
-    StructureStore::new(&state.projects).create_scene(&project_id, &title, beat_id)
+    StructureStore::new(&state.projects).create_scene_in_chapter(
+        &project_id,
+        &title,
+        beat_id,
+        chapter_id.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn structure_scene_move(
+    state: State<'_, AppState>,
+    project_id: String,
+    scene_id: String,
+    chapter_id: String,
+    index: u32,
+) -> Result<()> {
+    StructureStore::new(&state.projects).move_scene(&project_id, &scene_id, &chapter_id, index)
+}
+
+// ---------- Chapters ----------
+
+#[tauri::command]
+pub fn structure_chapters_list(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<Chapter>> {
+    StructureStore::new(&state.projects).ensure_chapters(&project_id)
+}
+
+#[tauri::command]
+pub fn structure_chapter_create(
+    state: State<'_, AppState>,
+    project_id: String,
+    title: String,
+) -> Result<Chapter> {
+    StructureStore::new(&state.projects).create_chapter(&project_id, &title)
+}
+
+#[tauri::command]
+pub fn structure_chapter_update(
+    state: State<'_, AppState>,
+    project_id: String,
+    chapter_id: String,
+    patch: ChapterPatch,
+) -> Result<Chapter> {
+    StructureStore::new(&state.projects).update_chapter(&project_id, &chapter_id, patch)
+}
+
+#[tauri::command]
+pub fn structure_chapter_delete(
+    state: State<'_, AppState>,
+    project_id: String,
+    chapter_id: String,
+) -> Result<()> {
+    StructureStore::new(&state.projects).delete_chapter(&project_id, &chapter_id)
+}
+
+#[tauri::command]
+pub fn structure_chapter_reorder(
+    state: State<'_, AppState>,
+    project_id: String,
+    ids_in_order: Vec<String>,
+) -> Result<()> {
+    StructureStore::new(&state.projects).reorder_chapters(&project_id, &ids_in_order)
 }
 
 #[tauri::command]

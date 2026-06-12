@@ -229,19 +229,28 @@ impl<'a> ManuscriptStore<'a> {
     ///
     /// `scenes` must already be in the order the user wants — the caller
     /// is responsible for that (typically `StructureStore::load_scenes`).
-    /// The returned `CompileReport` carries the full text, the word count,
-    /// and the scene count. If `output_path` is `Some`, the text is also
-    /// written atomically to that path.
+    /// `chapters` (in chapter order) drives `# Chapter N` headings at
+    /// chapter boundaries and the `only_chapter_id` filter; pass `&[]`
+    /// for a headerless scene stream. The returned `CompileReport`
+    /// carries the full text, the word count, and the scene count. If
+    /// `output_path` is `Some`, the text is also written atomically.
     pub fn compile(
         &self,
         project_id: &str,
         scenes: &[crate::models::structure::Scene],
+        chapters: &[crate::models::structure::Chapter],
         options: &CompileOptions,
         output_path: Option<&std::path::Path>,
     ) -> Result<CompileReport> {
         let mut out = String::new();
         let mut emitted = 0u32;
+        let mut last_chapter: Option<String> = None;
         for scene in scenes {
+            if let Some(only) = options.only_chapter_id.as_deref() {
+                if scene.chapter_id.as_deref() != Some(only) {
+                    continue;
+                }
+            }
             let content = self.load_scene(project_id, &scene.id, scene.order)?;
             let trimmed = content.text.trim();
             if trimmed.is_empty() && !options.include_empty_scenes {
@@ -249,6 +258,26 @@ impl<'a> ManuscriptStore<'a> {
             }
             if !out.is_empty() {
                 out.push_str(&options.separator);
+            }
+            // Chapter heading at each chapter boundary.
+            if options.include_chapter_headings
+                && !chapters.is_empty()
+                && scene.chapter_id != last_chapter
+            {
+                if let Some(pos) = scene
+                    .chapter_id
+                    .as_deref()
+                    .and_then(|c| chapters.iter().position(|ch| ch.id == c))
+                {
+                    let ch = &chapters[pos];
+                    out.push_str(&format!("# Chapter {}", pos + 1));
+                    let title = ch.title.trim();
+                    if !title.is_empty() && title != format!("Chapter {}", pos + 1) {
+                        out.push_str(&format!(" — {title}"));
+                    }
+                    out.push_str("\n\n");
+                }
+                last_chapter = scene.chapter_id.clone();
             }
             if options.include_scene_titles {
                 out.push_str("## ");
@@ -287,6 +316,11 @@ pub struct CompileOptions {
     pub include_empty_scenes: bool,
     /// What to insert between consecutive scenes. Default `\n\n`.
     pub separator: String,
+    /// Render `# Chapter N — Title` at each chapter boundary. Default
+    /// true (no-op when the caller passes no chapters).
+    pub include_chapter_headings: bool,
+    /// Compile only the scenes of this chapter — per-chapter export.
+    pub only_chapter_id: Option<String>,
 }
 
 impl Default for CompileOptions {
@@ -295,6 +329,8 @@ impl Default for CompileOptions {
             include_scene_titles: false,
             include_empty_scenes: false,
             separator: "\n\n".into(),
+            include_chapter_headings: true,
+            only_chapter_id: None,
         }
     }
 }
@@ -493,6 +529,7 @@ mod tests {
             climax: String::new(),
             resolution: String::new(),
             thread_ids: Vec::new(),
+            chapter_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -518,7 +555,7 @@ mod tests {
             scene(2, "scn_c", "End"),
         ];
         let report = store
-            .compile(&pid, &scenes, &CompileOptions::default(), None)
+            .compile(&pid, &scenes, &[], &CompileOptions::default(), None)
             .unwrap();
         assert_eq!(report.scene_count, 3);
         assert_eq!(
@@ -542,10 +579,71 @@ mod tests {
             scene(2, "scn_c", "C"),
         ];
         let report = store
-            .compile(&pid, &scenes, &CompileOptions::default(), None)
+            .compile(&pid, &scenes, &[], &CompileOptions::default(), None)
             .unwrap();
         assert_eq!(report.scene_count, 2);
         assert_eq!(report.markdown, "Real prose.\n\nMore prose.\n");
+    }
+
+    #[test]
+    fn compile_emits_chapter_headings_and_per_chapter_export() {
+        use crate::models::structure::Chapter;
+        let (_d, ps, pid) = fixture();
+        let store = ManuscriptStore::new(&ps);
+        store.save_scene(&pid, "scn_a", 0, "Alpha prose.").unwrap();
+        store.save_scene(&pid, "scn_b", 1, "Beta prose.").unwrap();
+
+        let ch1 = Chapter::fresh(&pid, 0, "Chapter 1");
+        let mut ch2 = Chapter::fresh(&pid, 1, "");
+        ch2.title = "The Drowned Chapel".into();
+        let mut s1 = scene(0, "scn_a", "A");
+        s1.chapter_id = Some(ch1.id.clone());
+        let mut s2 = scene(1, "scn_b", "B");
+        s2.chapter_id = Some(ch2.id.clone());
+        let scenes = vec![s1, s2];
+        let chapters = vec![ch1, ch2.clone()];
+
+        let report = store
+            .compile(&pid, &scenes, &chapters, &CompileOptions::default(), None)
+            .unwrap();
+        // Generic title "Chapter 1" isn't repeated after the number; a
+        // real title is.
+        assert!(report.markdown.starts_with("# Chapter 1\n\nAlpha prose."));
+        assert!(report
+            .markdown
+            .contains("# Chapter 2 — The Drowned Chapel\n\nBeta prose."));
+
+        // Headings off → plain stream.
+        let report = store
+            .compile(
+                &pid,
+                &scenes,
+                &chapters,
+                &CompileOptions {
+                    include_chapter_headings: false,
+                    ..CompileOptions::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert!(!report.markdown.contains("# Chapter"));
+
+        // Per-chapter export: only chapter 2's scenes.
+        let report = store
+            .compile(
+                &pid,
+                &scenes,
+                &chapters,
+                &CompileOptions {
+                    only_chapter_id: Some(ch2.id.clone()),
+                    ..CompileOptions::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(report.scene_count, 1);
+        assert!(report.markdown.contains("Beta prose."));
+        assert!(!report.markdown.contains("Alpha prose."));
     }
 
     #[test]
@@ -562,6 +660,7 @@ mod tests {
             .compile(
                 &pid,
                 &scenes,
+                &[],
                 &CompileOptions {
                     include_scene_titles: true,
                     ..CompileOptions::default()
@@ -659,6 +758,7 @@ mod tests {
             .compile(
                 &pid,
                 &[scene(0, "scn_a", "Only")],
+                &[],
                 &CompileOptions::default(),
                 Some(&out),
             )

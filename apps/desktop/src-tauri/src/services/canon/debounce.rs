@@ -46,7 +46,9 @@ impl Debouncer {
             tokio::time::sleep(delay).await;
             // Deregister before running so a re-schedule issued *during*
             // `run` starts a fresh timer instead of aborting nothing.
-            map.lock().expect("debounce lock poisoned").remove(&key_owned);
+            map.lock()
+                .expect("debounce lock poisoned")
+                .remove(&key_owned);
             run();
         });
         pending.insert(key.to_string(), handle);
@@ -112,6 +114,10 @@ mod tests {
             c.fetch_add(1, Ordering::SeqCst);
         });
         settle(&counter, 2).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 2, "same key fires again later");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "same key fires again later"
+        );
     }
 }
