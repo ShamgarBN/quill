@@ -146,8 +146,7 @@ pub async fn extract_and_merge(
     );
     let payload = parse_json_payload(&resp.content)?;
     report.characters_returned = payload.characters.len() as u32;
-    report.world_returned =
-        (payload.locations_factions.len() + payload.lore_concepts.len()) as u32;
+    report.world_returned = (payload.locations_factions.len() + payload.lore_concepts.len()) as u32;
     report.threads_returned = payload.threads.len() as u32;
     tracing::info!(
         characters = report.characters_returned,
@@ -386,9 +385,7 @@ fn parse_json_payload(raw: &str) -> Result<Payload> {
             // that landed before the cutoff.
             if let Some(repaired) = repair_truncated_json(candidate) {
                 if let Ok(p) = serde_json::from_str::<Payload>(&repaired) {
-                    tracing::warn!(
-                        "canon extraction: recovered from truncated JSON via salvage"
-                    );
+                    tracing::warn!("canon extraction: recovered from truncated JSON via salvage");
                     return Ok(p);
                 }
             }
@@ -579,10 +576,8 @@ fn merge_into_stores(
     if !payload.threads.is_empty() {
         let store = ThreadStore::new(projects);
         let existing = store.list(project_id)?;
-        let mut existing_titles: std::collections::HashSet<String> = existing
-            .iter()
-            .map(|t| t.title.to_lowercase())
-            .collect();
+        let mut existing_titles: std::collections::HashSet<String> =
+            existing.iter().map(|t| t.title.to_lowercase()).collect();
         let mut all = existing;
         for cand in &payload.threads {
             let title = cand.title.trim();
@@ -620,11 +615,7 @@ fn merge_into_stores(
 ///   bumps the timestamp; extraction writes never do), and came from this
 ///   same doc, the doc is the entry's source of truth: refresh fields
 ///   wholesale so an updated note keeps its entry current.
-fn enrich_character(
-    existing: &mut Character,
-    cand: &CandidateCharacter,
-    doc_id: &str,
-) -> bool {
+fn enrich_character(existing: &mut Character, cand: &CandidateCharacter, doc_id: &str) -> bool {
     let mut changed = merge_aliases(&mut existing.aliases, &existing.name, &cand.aliases);
 
     let refresh = existing.ai_suggested
@@ -803,7 +794,12 @@ mod tests {
 }"#,
         );
 
-        let chunks = vec![make_chunk("doc_a", 0, "irrelevant", ChunkSensitivity::Public)];
+        let chunks = vec![make_chunk(
+            "doc_a",
+            0,
+            "irrelevant",
+            ChunkSensitivity::Public,
+        )];
         let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
             .await
             .unwrap();
@@ -860,7 +856,12 @@ mod tests {
   "threads": []
 }"#,
         );
-        let chunks = vec![make_chunk("doc_a", 0, "irrelevant", ChunkSensitivity::Public)];
+        let chunks = vec![make_chunk(
+            "doc_a",
+            0,
+            "irrelevant",
+            ChunkSensitivity::Public,
+        )];
         let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
             .await
             .unwrap();
@@ -902,9 +903,19 @@ mod tests {
         assert_eq!(report.characters_enriched, 1);
         let chars = store.list(&p.id).unwrap();
         assert_eq!(chars.len(), 1);
-        assert_eq!(chars[0].motivation, "Find his brother", "empty field filled");
-        assert_eq!(chars[0].aliases, vec!["Kael".to_string()], "alias merged, dup skipped");
-        assert!(!chars[0].ai_suggested, "hand-created entry keeps its provenance");
+        assert_eq!(
+            chars[0].motivation, "Find his brother",
+            "empty field filled"
+        );
+        assert_eq!(
+            chars[0].aliases,
+            vec!["Kael".to_string()],
+            "alias merged, dup skipped"
+        );
+        assert!(
+            !chars[0].ai_suggested,
+            "hand-created entry keeps its provenance"
+        );
         assert_eq!(
             chars[0].role,
             CharacterRole::Supporting,
@@ -1024,7 +1035,10 @@ mod tests {
         let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
             .await
             .unwrap();
-        assert_eq!(report.characters_added, 1, "null fields must not abort parse");
+        assert_eq!(
+            report.characters_added, 1,
+            "null fields must not abort parse"
+        );
         assert_eq!(report.world_added, 1);
         assert_eq!(report.threads_added, 1);
 
@@ -1055,7 +1069,10 @@ mod tests {
         let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
             .await
             .unwrap();
-        assert_eq!(report.characters_added, 1, "null-name entry dropped, valid one kept");
+        assert_eq!(
+            report.characters_added, 1,
+            "null-name entry dropped, valid one kept"
+        );
         let chars = CharacterStore::new(&projects).list(&p.id).unwrap();
         assert_eq!(chars[0].name, "Luther Kaine");
     }
@@ -1123,7 +1140,10 @@ mod tests {
         let report = extract_and_merge(&p.id, "doc_a", &chunks, &chat, &projects)
             .await
             .unwrap();
-        assert_eq!(report.characters_added, 1, "retry should eventually succeed");
+        assert_eq!(
+            report.characters_added, 1,
+            "retry should eventually succeed"
+        );
     }
 
     #[test]

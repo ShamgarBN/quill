@@ -92,11 +92,12 @@ pub fn manuscript_compile(
     options: Option<CompileOptions>,
 ) -> Result<CompileReport> {
     let structure = StructureStore::new(&state.projects);
+    let chapters = structure.ensure_chapters(&project_id)?;
     let scenes = structure.load_scenes(&project_id)?;
     let manuscript = ManuscriptStore::new(&state.projects);
     let opts = options.unwrap_or_default();
     let path_buf = output_path.map(PathBuf::from);
-    manuscript.compile(&project_id, &scenes, &opts, path_buf.as_deref())
+    manuscript.compile(&project_id, &scenes, &chapters, &opts, path_buf.as_deref())
 }
 
 /// Case-insensitive substring search across every scene's prose.

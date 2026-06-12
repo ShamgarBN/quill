@@ -244,6 +244,10 @@ pub struct Scene {
     /// IDs reference `Thread.id` from the project's thread store.
     /// Defaulted in serde for backward compat with v0.2 scene records.
     pub thread_ids: Vec<String>,
+    /// Owning chapter. `None` only for legacy scene files written before
+    /// chapters existed — the store's migration assigns those to an
+    /// auto-created first chapter on the next load.
+    pub chapter_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -267,6 +271,7 @@ impl Default for Scene {
             climax: String::new(),
             resolution: String::new(),
             thread_ids: Vec::new(),
+            chapter_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -292,6 +297,7 @@ impl Scene {
             climax: String::new(),
             resolution: String::new(),
             thread_ids: Vec::new(),
+            chapter_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -301,6 +307,90 @@ impl Scene {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SceneList {
     pub scenes: Vec<Scene>,
+}
+
+// --------- Chapters ---------
+
+/// A chapter — the reader-facing structural unit. Chapters own scenes:
+/// every scene's `chapter_id` points at exactly one chapter (the store
+/// migrates legacy scene files into an auto-created "Chapter 1" and keeps
+/// each chapter's scenes contiguous in global order).
+///
+/// Stored at `<project>/structure/chapters.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Chapter {
+    pub id: String,
+    pub project_id: String,
+    /// Position in the book (sequential, dense).
+    pub order: u32,
+    pub title: String,
+    /// Optional pacing target for the chapter's total words. YA chapters
+    /// typically run 1.5–3k; the rail shows progress against this.
+    pub target_word_count: Option<u32>,
+    /// What this chapter must accomplish — stakes, the turn, the hook it
+    /// should land on. Injected into draft prompts as pacing guidance.
+    pub notes: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Default for Chapter {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: String::new(),
+            project_id: String::new(),
+            order: 0,
+            title: String::new(),
+            target_word_count: None,
+            notes: String::new(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+impl Chapter {
+    pub fn fresh(project_id: &str, order: u32, title: &str) -> Self {
+        Self {
+            id: format!("chp_{}", uuid::Uuid::new_v4().simple()),
+            project_id: project_id.to_string(),
+            order,
+            title: title.to_string(),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ChapterList {
+    pub chapters: Vec<Chapter>,
+}
+
+/// Partial update for `Chapter`. `target_word_count` uses the
+/// double-Option convention: `Some(None)` clears the target,
+/// `Some(Some(n))` sets it, `None` leaves it unchanged.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct ChapterPatch {
+    pub title: Option<String>,
+    pub target_word_count: Option<Option<u32>>,
+    pub notes: Option<String>,
+}
+
+impl ChapterPatch {
+    pub fn apply(self, c: &mut Chapter) {
+        if let Some(v) = self.title {
+            c.title = v;
+        }
+        if let Some(v) = self.target_word_count {
+            c.target_word_count = v;
+        }
+        if let Some(v) = self.notes {
+            c.notes = v;
+        }
+    }
 }
 
 #[cfg(test)]

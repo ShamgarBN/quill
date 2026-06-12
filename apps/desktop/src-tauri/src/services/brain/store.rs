@@ -366,12 +366,7 @@ impl<'a> WorldStore<'a> {
         self.save(project_id, &entries)
     }
 
-    pub fn update(
-        &self,
-        project_id: &str,
-        id: &str,
-        patch: WorldEntryPatch,
-    ) -> Result<WorldEntry> {
+    pub fn update(&self, project_id: &str, id: &str, patch: WorldEntryPatch) -> Result<WorldEntry> {
         let mut entries = self.list(project_id)?;
         let w = entries
             .iter_mut()

@@ -238,7 +238,9 @@ mod tests {
         assert!(b.embedding_stale, "untagged legacy chunks are stale");
 
         // Without a current model (no API key), staleness is unknown → false.
-        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None, None)
+            .await
+            .unwrap();
         assert!(docs.iter().all(|d| !d.embedding_stale));
     }
 
@@ -285,7 +287,9 @@ mod tests {
             .await
             .unwrap();
         let vault = PathBuf::from("/vault");
-        let docs = list_documents(&vectors, "p", Some(&vault), None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", Some(&vault), None, None)
+            .await
+            .unwrap();
         assert_eq!(docs.len(), 2);
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         assert_eq!(a.chunk_count, 2);
@@ -314,7 +318,9 @@ mod tests {
             ])
             .await
             .unwrap();
-        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None, None)
+            .await
+            .unwrap();
         assert!(docs[0].mixed_sensitivity);
     }
 
@@ -353,7 +359,9 @@ mod tests {
             .unwrap();
         let pruned = prune_missing(&vectors, "p").await.unwrap();
         assert_eq!(pruned, 1);
-        let remaining = list_documents(&vectors, "p", None, None, None).await.unwrap();
+        let remaining = list_documents(&vectors, "p", None, None, None)
+            .await
+            .unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].doc_id, "doc_a");
     }
@@ -388,7 +396,9 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(changed, 2);
-        let docs = list_documents(&vectors, "p", None, None, None).await.unwrap();
+        let docs = list_documents(&vectors, "p", None, None, None)
+            .await
+            .unwrap();
         let a = docs.iter().find(|d| d.doc_id == "doc_a").unwrap();
         let b = docs.iter().find(|d| d.doc_id == "doc_b").unwrap();
         assert_eq!(a.sensitivity, ChunkSensitivity::DoNotSend);

@@ -29,6 +29,9 @@ pub enum IncludedCategory {
     /// or aliases matched the scene's setting, the instruction, or the
     /// scene's recent prose.
     WorldBibleEntry,
+    /// Chapter pacing facts: scene position in chapter, words so far vs
+    /// target, the writer's chapter intent notes, closing-scene flag.
+    ChapterContext,
     /// Setting-kind canon chunk(s) matched by the scene's `setting` value.
     SettingCanon,
     /// Idea Park entries tagged for the active beat/scene/POV.

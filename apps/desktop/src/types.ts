@@ -292,8 +292,32 @@ export interface Scene {
   resolution: string;
   /** IDs of plot threads this scene touches. References Thread.id. */
   thread_ids: string[];
+  /** Owning chapter. Null only for pre-chapters legacy data; the backend
+   *  migration assigns those on the next list call. */
+  chapter_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Chapter {
+  id: string;
+  project_id: string;
+  order: number;
+  title: string;
+  /** Optional pacing target for the chapter's total words. */
+  target_word_count: number | null;
+  /** Writer's intent for the chapter — stakes, the turn, the hook.
+   *  Injected into draft prompts as pacing guidance. */
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterPatch {
+  title?: string;
+  /** null clears the target; a number sets it; omit to leave unchanged. */
+  target_word_count?: number | null;
+  notes?: string;
 }
 
 export interface ScenePatch {
@@ -337,6 +361,10 @@ export interface CompileOptions {
   include_scene_titles?: boolean;
   include_empty_scenes?: boolean;
   separator?: string;
+  /** Render `# Chapter N — Title` at chapter boundaries. Backend default true. */
+  include_chapter_headings?: boolean;
+  /** Compile only this chapter's scenes — per-chapter export. */
+  only_chapter_id?: string | null;
 }
 
 export interface CompileReport {

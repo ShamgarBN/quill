@@ -13,6 +13,8 @@ import type {
   BeatPatch,
   BeatSheet,
   CanonKind,
+  Chapter,
+  ChapterPatch,
   Character,
   CharacterPatch,
   ChunkRef,
@@ -248,12 +250,53 @@ export const structureSceneCreate = (
   projectId: string,
   title: string,
   beatId?: BeatId,
+  chapterId?: string,
 ): Promise<Scene> =>
   invoke<Scene>("structure_scene_create", {
     projectId,
     title,
     beatId: beatId ?? null,
+    chapterId: chapterId ?? null,
   });
+
+/** Move a scene into a chapter at a 0-based position (clamped). Handles
+ *  same-chapter reorders too. */
+export const structureSceneMove = (
+  projectId: string,
+  sceneId: string,
+  chapterId: string,
+  index: number,
+): Promise<void> =>
+  invoke<void>("structure_scene_move", { projectId, sceneId, chapterId, index });
+
+// ---------- Chapters ----------
+
+export const structureChaptersList = (projectId: string): Promise<Chapter[]> =>
+  invoke<Chapter[]>("structure_chapters_list", { projectId });
+
+export const structureChapterCreate = (
+  projectId: string,
+  title: string,
+): Promise<Chapter> =>
+  invoke<Chapter>("structure_chapter_create", { projectId, title });
+
+export const structureChapterUpdate = (
+  projectId: string,
+  chapterId: string,
+  patch: ChapterPatch,
+): Promise<Chapter> =>
+  invoke<Chapter>("structure_chapter_update", { projectId, chapterId, patch });
+
+export const structureChapterDelete = (
+  projectId: string,
+  chapterId: string,
+): Promise<void> => invoke<void>("structure_chapter_delete", { projectId, chapterId });
+
+export const structureChapterReorder = (
+  projectId: string,
+  idsInOrder: string[],
+): Promise<void> =>
+  invoke<void>("structure_chapter_reorder", { projectId, idsInOrder });
 
 export const structureSceneDelete = (
   projectId: string,

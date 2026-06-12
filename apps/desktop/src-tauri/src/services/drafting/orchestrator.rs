@@ -9,7 +9,7 @@ use crate::models::settings::AgeBand;
 use crate::models::structure::{Beat, Scene};
 use crate::services::brain::{CharacterStore, IdeaStore, ThreadStore, WorldStore};
 use crate::services::canon::IngestService;
-use crate::services::drafting::prompt::{assemble_messages, PromptInputs};
+use crate::services::drafting::prompt::{assemble_messages, ChapterContext, PromptInputs};
 use crate::services::llm::{
     AuditEntry, AuditLog, ChatMessage, ChatProvider, ChatRequest, EmbeddingsProvider,
     IncludedCategory, ProviderRegistry,
@@ -150,6 +150,7 @@ impl<'a> DraftingService<'a> {
             threads,
             linked_thread_ids,
             world_entries,
+            chapter,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -171,6 +172,7 @@ impl<'a> DraftingService<'a> {
             beat_label: beat_label.as_deref(),
             beat_description: beat_description.as_deref(),
             scene: &scene,
+            chapter: chapter.as_ref(),
             prior_text: &prior_text,
             selection: req.selection.as_deref(),
             canon: &canon_chunks,
@@ -224,6 +226,7 @@ impl<'a> DraftingService<'a> {
             threads,
             linked_thread_ids,
             world_entries,
+            chapter,
             voice_anchors,
             current_drift,
         } = self.gather_context(req).await?;
@@ -255,6 +258,7 @@ impl<'a> DraftingService<'a> {
             beat_label: beat_label.as_deref(),
             beat_description: beat_description.as_deref(),
             scene: &scene,
+            chapter: chapter.as_ref(),
             prior_text: &prior_text,
             selection: req.selection.as_deref(),
             canon: &canon_chunks,
@@ -308,12 +312,36 @@ impl<'a> DraftingService<'a> {
 
     async fn gather_context(&self, req: &DraftRequest) -> Result<DraftContext> {
         let structure = StructureStore::new(self.projects);
+        let chapters = structure.ensure_chapters(&req.project_id)?;
         let scenes = structure.load_scenes(&req.project_id)?;
         let scene = scenes
             .iter()
             .find(|s| s.id == req.scene_id)
             .cloned()
             .ok_or_else(|| QuillError::NotFound(format!("scene {}", req.scene_id)))?;
+
+        // Chapter pacing context: where this scene sits in its chapter,
+        // the chapter's running word count vs target, and whether this is
+        // the closing scene (→ the prompt demands a hook ending).
+        let chapter = scene.chapter_id.as_deref().and_then(|cid| {
+            let pos = chapters.iter().position(|c| c.id == cid)?;
+            let ch = &chapters[pos];
+            let in_chapter: Vec<&Scene> = scenes
+                .iter()
+                .filter(|s| s.chapter_id.as_deref() == Some(cid))
+                .collect();
+            let scene_position = in_chapter.iter().position(|s| s.id == scene.id)? as u32 + 1;
+            Some(ChapterContext {
+                number: pos as u32 + 1,
+                title: ch.title.clone(),
+                scene_position,
+                scene_count: in_chapter.len() as u32,
+                words_so_far: in_chapter.iter().map(|s| s.word_count).sum(),
+                target_word_count: ch.target_word_count,
+                notes: ch.notes.clone(),
+                is_final_scene: scene_position == in_chapter.len() as u32,
+            })
+        });
 
         let beat_sheet = structure.load_beat_sheet(&req.project_id)?;
         let (beat, beat_label, beat_description) = match scene.beat_id {
@@ -511,6 +539,7 @@ impl<'a> DraftingService<'a> {
             threads,
             linked_thread_ids,
             world_entries,
+            chapter,
             voice_anchors,
             current_drift,
         })
@@ -590,6 +619,7 @@ struct DraftContext {
     threads: Vec<Thread>,
     linked_thread_ids: Vec<String>,
     world_entries: Vec<WorldEntry>,
+    chapter: Option<ChapterContext>,
     voice_anchors: Vec<(String, String)>,
     current_drift: Option<f32>,
 }

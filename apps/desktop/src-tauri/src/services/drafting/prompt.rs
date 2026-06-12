@@ -9,6 +9,28 @@ use crate::models::structure::{Beat, Scene};
 use crate::services::drafting::orchestrator::DraftOperation;
 use crate::services::llm::{ChatMessage, ChatRole, IncludedCategory};
 
+/// Where the active scene sits inside its chapter — the pacing facts the
+/// model needs to write chapter-shaped prose. Computed by the orchestrator
+/// from the chapter list + flat scene order.
+#[derive(Debug, Clone)]
+pub struct ChapterContext {
+    /// 1-based chapter number in the book.
+    pub number: u32,
+    pub title: String,
+    /// 1-based position of the active scene within the chapter.
+    pub scene_position: u32,
+    pub scene_count: u32,
+    /// Total words across all of the chapter's scenes (including this one).
+    pub words_so_far: u32,
+    pub target_word_count: Option<u32>,
+    /// The writer's intent notes for the chapter (stakes, the turn, the
+    /// hook it should land on).
+    pub notes: String,
+    /// True when the active scene is the chapter's last — the prompt asks
+    /// for a page-turning hook instead of a tidy wrap-up.
+    pub is_final_scene: bool,
+}
+
 /// Inputs to the assembler. Borrows everything so callers can build their
 /// own state and pass references; nothing is cloned until the messages are
 /// produced.
@@ -26,6 +48,10 @@ pub struct PromptInputs<'a> {
     pub beat_description: Option<&'a str>,
 
     pub scene: &'a Scene,
+    /// The scene's position inside its chapter, with chapter pacing
+    /// facts (words so far, target, hook intent). None for projects
+    /// that somehow predate the chapter migration.
+    pub chapter: Option<&'a ChapterContext>,
     /// The full current prose of the scene as it stands on disk. May be
     /// empty for a fresh scene.
     pub prior_text: &'a str,
@@ -110,16 +136,20 @@ pub fn assemble_messages(inputs: &PromptInputs<'_>) -> AssembledPrompt {
 /// two distinct markets; the writer picks the band in Settings.
 fn band_guidance(band: AgeBand) -> &'static str {
     match band {
-        AgeBand::MiddleGrade => "\
+        AgeBand::MiddleGrade => {
+            "\
 - Audience: middle-grade readers (ages 8-12). Sentences lean short and concrete; \
 vocabulary stays accessible — let context teach any invented term. Wonder and humor \
 carry the tone. Romance is at most a blushing crush. Violence stays mild or off-page \
-and is never lingered on. Themes: friendship, family, courage, belonging, first independence.",
-        AgeBand::YoungAdult => "\
+and is never lingered on. Themes: friendship, family, courage, belonging, first independence."
+        }
+        AgeBand::YoungAdult => {
+            "\
 - Audience: young-adult readers (ages 13-18). Fuller interiority and emotional \
 complexity are welcome. Romance may simmer but stays non-explicit. Violence carries \
 weight and consequence without gratuitous detail. Themes: identity, agency, loyalty, \
-moral ambiguity, the cost of power.",
+moral ambiguity, the cost of power."
+        }
     }
 }
 
@@ -156,7 +186,9 @@ Your discipline:
              rather than writing prose.\n\
              Output format (Markdown):\n\
              - **Voice** — does the passage match the reference style? Cite specific phrases.\n\
-             - **Pacing** — does it escalate? Are there flat patches?\n\
+             - **Pacing** — does it escalate? Are there flat patches? If chapter context \
+             marks this as the chapter's closing scene, judge the final lines as a chapter \
+             ending: does it land a hook that forces the page-turn?\n\
              - **Reader fit** — are vocabulary, sentence complexity, and content right for \
              the target audience above? Flag anything drifting older or younger than the band.\n\
              - **Continuity** — anything that contradicts the canon excerpts?\n\
@@ -218,6 +250,37 @@ fn build_user_message(inputs: &PromptInputs<'_>, included: &mut Vec<IncludedCate
         let summary = inputs.beat.map(|b| b.summary.trim()).unwrap_or("");
         if !summary.is_empty() {
             buf.push_str(&format!("Your notes for this beat: {summary}\n"));
+        }
+        buf.push('\n');
+    }
+
+    // 3.4 Chapter pacing context (structural) --------------------------
+    if let Some(ch) = inputs.chapter {
+        included.push(IncludedCategory::ChapterContext);
+        buf.push_str(&format!("# Chapter context: Chapter {}", ch.number));
+        let title = ch.title.trim();
+        if !title.is_empty() && title != format!("Chapter {}", ch.number) {
+            buf.push_str(&format!(" — {title}"));
+        }
+        buf.push('\n');
+        buf.push_str(&format!(
+            "This scene is scene {} of {} in the chapter. Chapter words so far: {}",
+            ch.scene_position, ch.scene_count, ch.words_so_far
+        ));
+        if let Some(t) = ch.target_word_count {
+            buf.push_str(&format!(" (target ~{t})"));
+        }
+        buf.push_str(".\n");
+        let notes = ch.notes.trim();
+        if !notes.is_empty() {
+            buf.push_str(&format!("Chapter intent: {notes}\n"));
+        }
+        if ch.is_final_scene {
+            buf.push_str(
+                "This is the chapter's CLOSING scene. End on a page-turning hook — \
+                 an unresolved turn, threat, or question. Do NOT wrap things up neatly; \
+                 the reader should need the next chapter.\n",
+            );
         }
         buf.push('\n');
     }
@@ -586,6 +649,7 @@ mod tests {
             climax: "".into(),
             resolution: "".into(),
             thread_ids: vec![],
+            chapter_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -629,6 +693,7 @@ mod tests {
             beat_label: Some("Catalyst"),
             beat_description: Some("Life-changing event."),
             scene: &scene,
+            chapter: None,
             prior_text: "The wind tore at his hair. Kaelan shielded his eyes against the dawn.",
             selection: None,
             canon: std::slice::from_ref(&chunk),
@@ -677,6 +742,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "Some preceding paragraphs that should NOT appear in the prompt.",
             selection: Some("He felt a feeling of dread."),
             canon: &[],
@@ -707,6 +773,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: Some("The wind blew. The boy was sad."),
             canon: &[],
@@ -741,6 +808,7 @@ mod tests {
             beat_label: Some("Catalyst"),
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -769,6 +837,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: std::slice::from_ref(&chunk),
@@ -830,6 +899,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -868,6 +938,63 @@ mod tests {
     }
 
     #[test]
+    fn chapter_context_renders_pacing_block_with_hook_directive() {
+        let scene = fake_scene();
+        let ch = ChapterContext {
+            number: 7,
+            title: "The Drowned Chapel".into(),
+            scene_position: 3,
+            scene_count: 3,
+            words_so_far: 2_100,
+            target_word_count: Some(3_000),
+            notes: "Luther's mask slips for the first time.".into(),
+            is_final_scene: true,
+        };
+        let inputs = PromptInputs {
+            operation: DraftOperation::Continue,
+            age_band: AgeBand::YoungAdult,
+            instruction: "",
+            beat: None,
+            beat_label: None,
+            beat_description: None,
+            scene: &scene,
+            chapter: Some(&ch),
+            prior_text: "",
+            selection: None,
+            canon: &[],
+            setting_canon: &[],
+            pov_character: None,
+            ideas: &[],
+            threads: &[],
+            linked_thread_ids: &[],
+            world_entries: &[],
+            voice_anchors: &[],
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(user.contains("# Chapter context: Chapter 7 — The Drowned Chapel"));
+        assert!(user.contains("scene 3 of 3"));
+        assert!(user.contains("2100 (target ~3000)"));
+        assert!(user.contains("Chapter intent: Luther's mask slips"));
+        assert!(user.contains("CLOSING scene"));
+        assert!(assembled
+            .included
+            .contains(&IncludedCategory::ChapterContext));
+
+        // Mid-chapter scene: no hook directive.
+        let mut mid = ch.clone();
+        mid.scene_position = 1;
+        mid.is_final_scene = false;
+        let inputs = PromptInputs {
+            chapter: Some(&mid),
+            ..inputs
+        };
+        let assembled = assemble_messages(&inputs);
+        let user = &assembled.messages[1].content;
+        assert!(!user.contains("CLOSING scene"));
+    }
+
+    #[test]
     fn world_entries_render_as_curated_canon_block() {
         let scene = fake_scene();
         let mut cinterra = WorldEntry::fresh("p1", "Cinterra", WorldKind::Location);
@@ -885,6 +1012,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -922,6 +1050,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -957,6 +1086,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -998,6 +1128,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],
@@ -1030,6 +1161,7 @@ mod tests {
             beat_label: None,
             beat_description: None,
             scene: &scene,
+            chapter: None,
             prior_text: "",
             selection: None,
             canon: &[],

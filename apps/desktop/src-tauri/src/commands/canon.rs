@@ -11,11 +11,11 @@ use crate::services::canon::{
 use crate::services::llm::{AuditEntry, AuditLog, IncludedCategory, ProviderId};
 use crate::services::storage::ProjectStore;
 use crate::services::vector::VectorStore;
-use chrono::Utc;
-use std::sync::Arc;
 use crate::state::AppState;
+use chrono::Utc;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 /// Resolve the configured embeddings provider from settings.
@@ -177,7 +177,13 @@ fn schedule_extraction(
         // Always write an audit entry so the user can see what happened
         // in Settings → Audit log — even when extraction failed or found
         // nothing. That's the diagnostic backstop.
-        write_extraction_audit(&audit, &provider_name, &model_name, &project_id_owned, &outcome);
+        write_extraction_audit(
+            &audit,
+            &provider_name,
+            &model_name,
+            &project_id_owned,
+            &outcome,
+        );
         let payload = match outcome {
             Ok(report) => json!({
                 "doc_id": doc_id_owned,
@@ -451,10 +457,7 @@ pub async fn canon_list_documents(
 /// doc's kind and sensitivity; only the vectors change. Skips docs whose
 /// source file no longer exists. Returns the count re-ingested.
 #[tauri::command]
-pub async fn canon_reingest_stale(
-    state: State<'_, AppState>,
-    project_id: String,
-) -> Result<u64> {
+pub async fn canon_reingest_stale(state: State<'_, AppState>, project_id: String) -> Result<u64> {
     let embedder = embedder_for(&state).await?;
     let project = state.projects.open(&project_id)?;
     let vault_path = project.vault_path.as_deref().map(Path::new);
@@ -547,7 +550,13 @@ pub async fn canon_extract_doc(
     project_id: String,
     doc_id: String,
 ) -> Result<()> {
-    match schedule_extraction(&app, &state, &project_id, &doc_id, ExtractionTrigger::Manual) {
+    match schedule_extraction(
+        &app,
+        &state,
+        &project_id,
+        &doc_id,
+        ExtractionTrigger::Manual,
+    ) {
         ScheduleOutcome::Spawned => Ok(()),
         ScheduleOutcome::SkippedDisabled => Err(QuillError::InvalidArgument(
             "AI extraction is disabled for this document; enable it first.".into(),
